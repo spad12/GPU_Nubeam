@@ -1,0 +1,8 @@
+# CUDA_PROFILE_LOG_VERSION 2.0
+# CUDA_PROFILE_CSV 1
+# TIMESTAMPFACTOR fffff6e6e5e526a0
+# CUDA_DEVICE 0 GeForce GTX 470
+gpustarttimestamp,method,gputime,cputime,occupancy,gridSizeX,gridSizeY,gridSizeZ,blockSizeX,blockSizeY,blockSizeZ,dynSmemPerBlock,staSmemPerBlock,registerPerThread,streamID,localblocksize,memTransferSize,memtransferhostmemtype,local_load,local_store,gld_request,gst_request,shared_load,shared_store,sm_cta_launched,l1_local_load_hit,branch,l1_local_load_miss,l1_local_store_hit,divergent_branch,l1_local_store_miss,l1_global_load_hit,inst_issued,l1_global_load_miss,inst_executed,uncached_global_load_transaction,global_store_transaction,warps_launched,threads_launched,l1_shared_bank_conflict,active_warps,active_cycles,l2 read requests,l2 write requests,l2 read misses,l2 write misses,tex cache requests,dram reads,dram writes
+123b35505e4e33e0,memset32_aligned1D,4.352,22,0.125,1,1,1,192,1,1,0,0,6,0,-1,,0,0,0,0,1,0,0,0,0,7,0,0,0,0,0,73,0,55,0,1,6,192,0,5771,997,0,1,5,0,0,5,0
+123b35505e895720,memset32_aligned1D,4.448,9,1,16,1,1,192,1,1,0,0,6,0,-1,,0,0,0,0,12,0,0,0,0,24,0,0,0,0,0,218,0,180,0,12,12,384,0,14899,1318,0,361,23,177,0,23,177
+123b35505ea22940,memcpyHtoD,1.376,7,,,,,,,,,,,0,0,24,0

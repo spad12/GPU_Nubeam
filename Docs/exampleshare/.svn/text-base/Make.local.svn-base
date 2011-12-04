@@ -1,0 +1,38 @@
+# include this file before Make.flags
+# to define variables for peculiar local setups
+
+#INCLDIR = $(PREFIX0)/include
+FLIBROOT=/home/joshp/intel
+F90HOME=$(FLIBROOT)/lib/intel64
+IFC_V = 11.1/073
+NETCDF_DIR=/home/joshp/local/netcdf
+NETCDFHOME = $(NETCDF_DIR)
+GCC_DIR = /usr/lib/x86_64-linux-gnu/gcc/x86_64-linux-gnu/4.5.2
+GCC_PATH = /usr/lib/x86_64-linux-gnu/gcc/x86_64-linux-gnu/4.5.2
+PREFIX=/home/joshp/CUDA/Nubeam/nubeam_sandbox/ntcc
+MDSPLUS_DIR=/home/joshp/local/mdsplus
+MDSLIB = -L/home/joshp/local/mdsplus/lib -lMdsLib
+FORTRAN_VARIANT=Intel
+NTCCHOME = /home/joshp/CUDA/Nubeam/nubeam_sandbox/ntcc
+NETCDF = -L$(NETCDF_DIR)/lib -lnetcdf -lnetcdff
+#FORTLIBS = -L/opt/intel/Compiler/11.1/073/lib/intel64 -lifport -lifcore  -lintlc  -limf -lsvml -lm -lipgo -lirc -lc -lgcc -lirc_s -ldl -lc
+F_MAIN = $(FLIBROOT)/lib/intel64/for_main.o
+#FC = /opt/intel/Compiler/11.1/073/bin/intel64/ifort
+#F90 = /opt/intel/Compiler/11.1/073/bin/intel64/ifort
+PREACTDIR = $(NTCCHOME)/preact
+_64=1
+INTEL_CXXLIB_ICC=1
+RHEL5=1
+LAPACKHOME=/home/joshp/intel/mkl/lib/intel64
+LAPACK=-L$(LAPACKHOME) -lmkl_lapack95_lp64 -lmkl_sequential -lmkl_core
+BLAS=-L$(LAPACKHOME) -lmkl_intel_lp64
+F90FLAGS= -assume no2underscores
+CLIBS=-L$(GCC_PATH) -lstdc++
+PERL=/usr/bin/perl
+XFLIB=-L$(F90HOME) -lifcore -lifport
+CUDA_LIBRARY_PATH	:= /usr/local/cuda/lib64
+CUDA_INCLUDE_PATH	:= /usr/local/cuda/include,/home/joshp/CUDA/Nubeam/nubeam_gpu/include
+CUDAFORTRAN_LIBS := -L$(CUDA_LIBRARY_PATH) -I$(CUDA_INCLUDE_PATH) -lcudart -L/home/joshp/lib/cudpp -lcudpp_x86_64 -lglut
+#NVCCFLAGS	:= -m64 -O3 -gencode arch=compute_20,code=sm_20 --maxrregcount=40 -I$(CUDA_INCLUDE_PATH)
+NVCCFLAGS	:= -m64 --profile -gencode=arch=compute_20,code=sm_20 --maxrregcount=40 -I$(CUDA_INCLUDE_PATH)
+NVCC		:= /usr/local/cuda/bin/nvcc

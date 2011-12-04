@@ -1,0 +1,35 @@
+K 25
+svn:wc:ra_dav:version-url
+V 45
+/repos/transp/!svn/ver/15135/trunk/nubeam_gpu
+END
+README_Nubeam_GPU
+K 25
+svn:wc:ra_dav:version-url
+V 63
+/repos/transp/!svn/ver/15245/trunk/nubeam_gpu/README_Nubeam_GPU
+END
+.project
+K 25
+svn:wc:ra_dav:version-url
+V 54
+/repos/transp/!svn/ver/15116/trunk/nubeam_gpu/.project
+END
+nubeam_gpu_rebuild.csh
+K 25
+svn:wc:ra_dav:version-url
+V 68
+/repos/transp/!svn/ver/15244/trunk/nubeam_gpu/nubeam_gpu_rebuild.csh
+END
+.cproject
+K 25
+svn:wc:ra_dav:version-url
+V 55
+/repos/transp/!svn/ver/15244/trunk/nubeam_gpu/.cproject
+END
+nubeam_gpu_misc.inf
+K 25
+svn:wc:ra_dav:version-url
+V 65
+/repos/transp/!svn/ver/15114/trunk/nubeam_gpu/nubeam_gpu_misc.inf
+END

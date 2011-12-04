@@ -1,0 +1,132 @@
+README_NUBEAM_GPU
+
+Last Update of this readme: 7/5/2011, by Joshua Payne (spad12@mit.edu)
+
+NUBEAM_GPU is a gpu implementation of the ntcc transp routine 'nubeam'. The current implementation deals only with the orbit subroutine. 
+
+locations of NUBEAM_GPU:
+
+src/cuda: cuda source code
+src/fortran/nubeam_replacements: nubeam source files that must be replaced
+src/fortran/nubeam_new: fortran source files to be added to the nubeam source directory
+src/random_gpu: gpu implementation of ntcc random number generator
+
+include: includes several headers needed by the gpu routines
+include/radixSort: a gpu based radix sort required by the gpu routines
+
+Docs: script to build netcdf with ifort, example environment
+Docs/exampleshare: examples for share files used in building nubeam
+
+Useful Links:
+
+	CudaFortran:
+	http://www.computationalmathematics.org/topics/files/calling_cuda_from_fortran.html
+	
+	CUDA Functions:
+	http://developer.download.nvidia.com/compute/cuda/4_0/toolkit/docs/online/index.html
+
+-------------------------------------
+Building Nubeam
+-------------------------------------
+
+Libraries:
+	LAPACK: installed with INTEL compiler
+	BLAS: installed with INTEL compiler
+		both are located by default in:  /opt/intel/Compiler/11.1/072/mkl/lib/em64t
+		be sure to run the “tool” scripts in /opt/intel/Compiler/11.1/072/mkl/tools/enviroment
+		choose the script that fits your platform and hardware
+	NETCDF: build with INTEL fortran compiler and gcc compiler.
+		Use this script to build: build_netcdf_ifort.sh
+		the build script must be copied into the netcdf source directory.
+		
+-------------------------------------
+Enviroment Variables:
+-------------------------------------
+	INTEL compiler location needs to be in path:
+	setenv PATH ${PATH}:/opt/intel/Compiler/11.1/072/bin/intel64
+	
+	LD_LIBRARY_PATH needs to include INTEL LAPACK, BLAS, and NETCDF Libraries
+	setenv LD_LIBRARY_PATH ${LD_LIBRARY_PATH}:/opt/intel/Compiler/11.1/072/lib/intel64
+	setenv LD_LIBRARY_PATH ${LD_LIBRARY_PATH}:/opt/intel/Compiler/11.1/072/mkl/lib/em64t
+	setenv LD_LIBRARY_PATH ${LD_LIBRARY_PATH}:/usr/local/netcdf_ifort/lib
+	setenv LD_LIBRARY_PATH ${LD_LIBRARY_PATH}:/usr/local/fftw-2.1.5/lib
+	setenv LD_LIBRARY_PATH ${LD_LIBRARY_PATH}:/usr/local/pgplot
+
+	SOURCE needs to be set with the INTEL compiler scripts:
+	source /opt/intel/Compiler/11.1/072/bin/intel64/iccvars_intel64.csh 
+	source /opt/intel/Compiler/11.1/072/bin/intel64/ifortvars_intel64.csh
+
+Example Path:
+/opt/intel/Compiler/11.1/072/bin/intel64:/opt/intel/Compiler/11.1/072/bin/intel64:/usr/local/cuda/bin:/usr/kerberos/bin:/usr/local/bin:/usr/bin:/bin:/usr/X11R6/bin:/usr/local/mdsplus/bin:/opt/intel/Compiler/11.1/072/bin/intel64:/home/paynej/CUDA/Nubeam/nubeam_sandbox/ntcc/bin
+
+Example LD_LIBRARY_PATH:
+/opt/intel/Compiler/11.1/072/lib/intel64:/opt/intel/Compiler/11.1/072/lib/intel64:/usr/local/cuda/lib:/usr/local/cuda/lib64:/home/paynej/lib:/usr/local/mdsplus/lib:/usr/local/cula/lib:/usr/local/cula/lib64:/usr/local/ATLAS/lib/RHLE:/usr/local/fftw-2.1.5/lib:/usr/local/pgplot:/opt/intel/Compiler/11.1/072/lib/intel64:/opt/intel/Compiler/11.1/072/mkl/lib/em64t:/usr/local/netcdf_ifort/lib
+
+-------------------------------------
+Running Nubeam
+-------------------------------------
+
+Run the test scripts found in the "nubeam_comp_exec" directory
+Make sure that nubeam_comp_exec.exe is in $PATH
+Make sure ADASDIR is set to something
+
+-------------------------------------
+Rebuilding Nubeam
+-------------------------------------
+
+From "nubeam" toplevel directory
+$gmake uninstall
+$gmake #this should build any changes
+$cd nubeam_comp_exec
+$gmake exec -B
+$cd ..
+$gmake install
+
+run nubeam
+
+-------------------------------------
+Adding CUDA code to NUBEAM
+-------------------------------------
+
+	1. Define $(NVCC) in Make.local to be set to the location of the nvcc compiler
+	2. Define flags for the nvcc compiler in Make.local
+	3. Define the location for the cuda libraries, -lcuda, -lcudart in $(CUDA_DIR)/lib or lib64
+	4. Define the location for any include files, and the location of the cuda headers in $(CUDA_DIR)/include
+	5. Define CUDAFORTRANLIBS := -L$(CUDA_LIBRARY_PATH) -I$(CUDA_INCLUDE_PATH) -lcudart -lcuda
+	Example Make.local variables for a cuda build:
+		CUDA_LIBRARY_PATH	:= /usr/local/cuda/lib64
+		CUDA_INCLUDE_PATH	:= /usr/local/cuda/include,$(nubeam_gpu_path)/include
+		CUDAFORTRAN_LIBS := -L$(CUDA_LIBRARY_PATH) -I$(CUDA_INCLUDE_PATH) -lcudart -lcuda
+		NVCCFLAGS	:= -O3 -m64 -gencode arch=compute_20,code=sm_20 --ptxas-options=-v -I$(CUDA_INCLUDE_PATH)
+		NVCC		:= /usr/local/cuda/bin/nvcc
+	
+	6. Append $(CUDAFORTRAN_LIBS) to $(FORTLIBS)
+	
+	7. Place cuda code into relevent subdirectory so it can be included in the relevent library
+	8. Be sure to name any C functions that are being called with "extern "C" foo_()" with an "_" at the end of a function name
+	9. Edit the local Makefile to build the cuda code and add it to the archives
+	Example changes to Makefile:
+	# archive members
+	F  = $(subst .f,.o, $(wildcard *.f)) $(subst .F,.o, $(wildcard *.F))
+	F90 = $(subst .f90,.o, $(wildcard *.f90)) $(subst .F90,.o, $(wildcard *.F90))
+	CU = $(subst .cu,.o, $(wildcard *.cu)) $(subst .cu,.o, $(wildcard *.cu))
+	FALL = $(F) $(F90) $(CU)
+	
+	# Compile CUDA Code
+	$(ARC)(%.o): %.cu
+	$(NVCC) -c $(NVCCFLAGS) -o $(OBJDIR)/$*.o $<
+	$(make_ar)
+
+-------------------------------------
+A Note on the CUDA source code in /src/cuda
+-------------------------------------
+	
+There are several .cu files in this folder that are not used. These files were just temporary files to ease the coding process. The list of files that should not be compiled is as follows:
+beamcx_gpu.cu
+cleanup_step.cu
+collid_gpu.cu
+gpu_constants.cu
+setup_fields.cu
+Makefile
+
+

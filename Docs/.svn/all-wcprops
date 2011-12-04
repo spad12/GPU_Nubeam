@@ -1,0 +1,17 @@
+K 25
+svn:wc:ra_dav:version-url
+V 50
+/repos/transp/!svn/ver/15117/trunk/nubeam_gpu/Docs
+END
+Environment.bashrc
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/repos/transp/!svn/ver/15245/trunk/nubeam_gpu/Docs/Environment.bashrc
+END
+build_netcdf_ifort.sh
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/repos/transp/!svn/ver/15115/trunk/nubeam_gpu/Docs/build_netcdf_ifort.sh
+END

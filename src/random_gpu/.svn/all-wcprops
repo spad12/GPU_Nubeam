@@ -1,0 +1,71 @@
+K 25
+svn:wc:ra_dav:version-url
+V 60
+/repos/transp/!svn/ver/15115/trunk/nubeam_gpu/src/random_gpu
+END
+random_f77.f90
+K 25
+svn:wc:ra_dav:version-url
+V 75
+/repos/transp/!svn/ver/15115/trunk/nubeam_gpu/src/random_gpu/random_f77.f90
+END
+random_gpu.cu
+K 25
+svn:wc:ra_dav:version-url
+V 74
+/repos/transp/!svn/ver/15115/trunk/nubeam_gpu/src/random_gpu/random_gpu.cu
+END
+rngmod.F90
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/repos/transp/!svn/ver/15115/trunk/nubeam_gpu/src/random_gpu/rngmod.F90
+END
+random_lib.public
+K 25
+svn:wc:ra_dav:version-url
+V 78
+/repos/transp/!svn/ver/15115/trunk/nubeam_gpu/src/random_gpu/random_lib.public
+END
+rng.F90
+K 25
+svn:wc:ra_dav:version-url
+V 68
+/repos/transp/!svn/ver/15115/trunk/nubeam_gpu/src/random_gpu/rng.F90
+END
+random.F
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/repos/transp/!svn/ver/15115/trunk/nubeam_gpu/src/random_gpu/random.F
+END
+random.h
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/repos/transp/!svn/ver/15115/trunk/nubeam_gpu/src/random_gpu/random.h
+END
+randother.F
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/repos/transp/!svn/ver/15115/trunk/nubeam_gpu/src/random_gpu/randother.F
+END
+README
+K 25
+svn:wc:ra_dav:version-url
+V 67
+/repos/transp/!svn/ver/15245/trunk/nubeam_gpu/src/random_gpu/README
+END
+Makefile
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/repos/transp/!svn/ver/15115/trunk/nubeam_gpu/src/random_gpu/Makefile
+END
+timestamp.inf
+K 25
+svn:wc:ra_dav:version-url
+V 74
+/repos/transp/!svn/ver/15115/trunk/nubeam_gpu/src/random_gpu/timestamp.inf
+END

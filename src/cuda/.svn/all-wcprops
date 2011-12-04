@@ -1,0 +1,83 @@
+K 25
+svn:wc:ra_dav:version-url
+V 54
+/repos/transp/!svn/ver/15135/trunk/nubeam_gpu/src/cuda
+END
+beamcx_gpu.cu
+K 25
+svn:wc:ra_dav:version-url
+V 68
+/repos/transp/!svn/ver/15244/trunk/nubeam_gpu/src/cuda/beamcx_gpu.cu
+END
+orbit_gpu.cu
+K 25
+svn:wc:ra_dav:version-url
+V 67
+/repos/transp/!svn/ver/15245/trunk/nubeam_gpu/src/cuda/orbit_gpu.cu
+END
+XPTextureSpline.cuh
+K 25
+svn:wc:ra_dav:version-url
+V 74
+/repos/transp/!svn/ver/15244/trunk/nubeam_gpu/src/cuda/XPTextureSpline.cuh
+END
+fieldclass.cuh
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/repos/transp/!svn/ver/15244/trunk/nubeam_gpu/src/cuda/fieldclass.cuh
+END
+particleclass.cuh
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/repos/transp/!svn/ver/15245/trunk/nubeam_gpu/src/cuda/particleclass.cuh
+END
+simpleNubeam.cu
+K 25
+svn:wc:ra_dav:version-url
+V 70
+/repos/transp/!svn/ver/15135/trunk/nubeam_gpu/src/cuda/simpleNubeam.cu
+END
+collid_gpu.cu
+K 25
+svn:wc:ra_dav:version-url
+V 68
+/repos/transp/!svn/ver/15244/trunk/nubeam_gpu/src/cuda/collid_gpu.cu
+END
+cleanup_step.cu
+K 25
+svn:wc:ra_dav:version-url
+V 70
+/repos/transp/!svn/ver/15244/trunk/nubeam_gpu/src/cuda/cleanup_step.cu
+END
+constants.cuh
+K 25
+svn:wc:ra_dav:version-url
+V 68
+/repos/transp/!svn/ver/15245/trunk/nubeam_gpu/src/cuda/constants.cuh
+END
+setup_fields.cu
+K 25
+svn:wc:ra_dav:version-url
+V 70
+/repos/transp/!svn/ver/15244/trunk/nubeam_gpu/src/cuda/setup_fields.cu
+END
+display_orbits.cu
+K 25
+svn:wc:ra_dav:version-url
+V 72
+/repos/transp/!svn/ver/15244/trunk/nubeam_gpu/src/cuda/display_orbits.cu
+END
+gpu_constants.cu
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/repos/transp/!svn/ver/15244/trunk/nubeam_gpu/src/cuda/gpu_constants.cu
+END
+texture_refs.cuh
+K 25
+svn:wc:ra_dav:version-url
+V 71
+/repos/transp/!svn/ver/15244/trunk/nubeam_gpu/src/cuda/texture_refs.cuh
+END

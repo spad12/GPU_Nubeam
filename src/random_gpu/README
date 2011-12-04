@@ -1,0 +1,11 @@
+RANDOM_GPU
+
+GPU Implementation of NTCC random number generator:
+To use copy all files in this directory to $nubeam_src_path/random
+All of these files should replace the default random number generator.
+
+To Build:
+Ensure that all GPU variables are defined, as shown in ../../Docs/exampleshare/Make.local 
+
+
+This is not needed for nubeam normal operation or for nubeam_gpu operation. This only handles random number generation for the cpu nubeam code.

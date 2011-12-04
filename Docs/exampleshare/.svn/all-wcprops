@@ -1,0 +1,35 @@
+K 25
+svn:wc:ra_dav:version-url
+V 63
+/repos/transp/!svn/ver/15117/trunk/nubeam_gpu/Docs/exampleshare
+END
+flagtest.mk
+K 25
+svn:wc:ra_dav:version-url
+V 75
+/repos/transp/!svn/ver/15114/trunk/nubeam_gpu/Docs/exampleshare/flagtest.mk
+END
+Make.overwrite.sample
+K 25
+svn:wc:ra_dav:version-url
+V 85
+/repos/transp/!svn/ver/15114/trunk/nubeam_gpu/Docs/exampleshare/Make.overwrite.sample
+END
+Make.local.sample
+K 25
+svn:wc:ra_dav:version-url
+V 81
+/repos/transp/!svn/ver/15114/trunk/nubeam_gpu/Docs/exampleshare/Make.local.sample
+END
+Make.local
+K 25
+svn:wc:ra_dav:version-url
+V 74
+/repos/transp/!svn/ver/15245/trunk/nubeam_gpu/Docs/exampleshare/Make.local
+END
+Make.flags
+K 25
+svn:wc:ra_dav:version-url
+V 74
+/repos/transp/!svn/ver/15117/trunk/nubeam_gpu/Docs/exampleshare/Make.flags
+END

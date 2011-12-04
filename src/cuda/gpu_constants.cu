@@ -1,0 +1,275 @@
+#define __cplusplus
+#define __CUDACC__
+#include "cudamatrix_types.cuh"
+#include <stdlib.h>
+#include <stdio.h>
+#include <iostream>
+#include <string>
+#include <math.h>
+#include <ctime>
+#include <cstring>
+#include "cuda.h"
+#include "common_functions.h"
+#include "sm_20_intrinsics.h"
+#include "host_defines.h"
+#include <iostream>
+#include <curand_kernel.h>
+#include "curand.h"
+#include "cuda_texture_types.h"
+#include "texture_fetch_functions.h"
+#include "builtin_types.h"
+#include "cutil.h"
+#include <thrust/sort.h>
+
+#define BLOCK_SIZE 256
+#define BLOCK_SIZE2 512
+#define Max_Splits 64 // Maximum number of neutral splits
+#define Max_Track_segments 128// Maximum number of track segments
+#define Max_energy_sectors 512
+
+#  define CUDA_SAFE_KERNEL(call) {                                         \
+	call;																					\
+	cudaDeviceSynchronize();														\
+	cudaError err = cudaGetLastError();										\
+    if ( cudaSuccess != err) {                                               \
+        fprintf(stderr, "Cuda error in file '%s' in line %i : %s.\n",        \
+                __FILE__, __LINE__, cudaGetErrorString( err) );              \
+    } }
+
+
+
+
+const int threadsPerBlock = 256;
+
+__constant__ float pi = 3.1415926535897931; //Pi
+__constant__ float twopi = 6.2831853071795862;
+__constant__ float thmax = 6.2831853071795862;
+__constant__ float thmin = 0.0;
+
+__constant__ float Rmajor = 1.2; // (m)
+__constant__ float Rminor = 0.3; // (m)
+__constant__ float B0 = 1.2; // Tesla
+
+__constant__ float ZMP = 1.6726E-24;
+__constant__ float ZC = 2.9979E10; // Speed of light
+__constant__ float ZEL = 4.8032E-10;
+
+__constant__ float I0 = 2.0e6; // Amp
+__constant__ float mu0 =  1.2566370614359e-6; // N/Amp^2
+
+__constant__ float epsilon = 1.0e-34;
+
+__constant__ int gridSetupIDs_x[16] = {-1,0,1,2,-1,0,1,2,-1,0,1,2,-1,0,1,2};
+__constant__ int gridSetupIDs_y[16] = {-1,-1,-1,-1,0,0,0,0,1,1,1,1,2,2,2,2};
+
+__constant__ int bphi_sign;
+__constant__ int jdotb;
+
+__device__ int3* blockinfo_d;
+
+__constant__ float rk4_mults[3] = {0.5,0.5,1.0};
+
+__constant__ float V2TOEV = 5.219843860854e-13;
+
+int next_tex2D = 0;
+int next_tex1DLayered = 0;
+
+
+template <unsigned int blockSize,typename T>
+__noinline__ __global__ void basicreduce(T *g_idata, T *g_odata, unsigned int n)
+{
+	 __shared__ T sdata[threadsPerBlock];
+	unsigned int tid = threadIdx.x;
+	unsigned int i = blockIdx.x*(blockSize*2) + tid;
+	unsigned int gridSize = blockSize*2*gridDim.x;
+
+	sdata[tid] = 0;
+
+	while (i < n) { sdata[tid] += g_idata[i] + g_idata[i+blockSize];  i += gridSize; }
+	__syncthreads();
+	if (blockSize >= 512) { if (tid < 256) { sdata[tid] += sdata[tid + 256]; } __syncthreads(); }
+	if (blockSize >= 256) { if (tid < 128) { sdata[tid] += sdata[tid + 128]; } __syncthreads(); }
+	if (blockSize >= 128) { if (tid <  64) { sdata[tid] += sdata[tid +  64]; } __syncthreads(); }
+	if (tid < 32) {
+		if (blockSize >=  64) sdata[tid] += sdata[tid + 32];
+		if (blockSize >=  32) sdata[tid] += sdata[tid + 16];
+		if (blockSize >=  16) sdata[tid] += sdata[tid +  8];
+		if (blockSize >=   8) sdata[tid] += sdata[tid +  4];
+		if (blockSize >=   4) sdata[tid] += sdata[tid +  2];
+		if (blockSize >=   2) sdata[tid] += sdata[tid +  1];
+	}
+	if (tid == 0) g_odata[blockIdx.x] = sdata[0];
+}
+
+template<unsigned int blockSize,typename T>
+__noinline__ __device__
+T reduce(T* sdata)
+{
+	unsigned int tid = threadIdx.x;
+
+	__syncthreads();
+	if (blockSize >= 512) { if (tid < 256) { sdata[tid] += sdata[tid + 256]; } __syncthreads(); }
+	if (blockSize >= 256) { if (tid < 128) { sdata[tid] += sdata[tid + 128]; } __syncthreads(); }
+	if (blockSize >= 128) { if (tid <  64) { sdata[tid] += sdata[tid +  64]; } __syncthreads(); }
+	if (tid < 32) {
+		if (blockSize >=  64) sdata[tid] += sdata[tid + 32];
+		if (blockSize >=  32) sdata[tid] += sdata[tid + 16];
+		if (blockSize >=  16) sdata[tid] += sdata[tid +  8];
+		if (blockSize >=   8) sdata[tid] += sdata[tid +  4];
+		if (blockSize >=   4) sdata[tid] += sdata[tid +  2];
+		if (blockSize >=   2) sdata[tid] += sdata[tid +  1];
+	}
+
+
+	return sdata[0];
+}
+
+__noinline__ __device__
+float2 device_quadratic_equation(float a,float b,float c)
+{
+	float radical = b*b-4*a*c;
+	float2 result;
+
+	if(radical < 0.0)
+	{
+		result.x = 0.0;
+		result.y = 0.0;
+	}
+	else
+	{
+		radical = sqrt(radical);
+
+		result.x = (-b+radical)/(2*a);
+		result.y = (-b-radical)/(2*a);
+	}
+
+	return result;
+
+}
+
+__global__ void
+__launch_bounds__(512,6)
+doubletofloat_kernel(float* dst_d,double* src_d,unsigned int nelements)
+{
+	unsigned int idx = threadIdx.x;
+	unsigned int gidx = idx+blockIdx.x*blockDim.x;
+
+	__shared__ float tdata[512];
+
+	if(gidx < nelements)
+	{
+		tdata[idx] = src_d[gidx];
+	}
+	__syncthreads();
+	if(gidx < nelements)
+	{
+		dst_d[gidx] = tdata[idx];
+	}
+}
+
+__noinline__ __global__ void
+doubletoMatrixf_kernel(cudaMatrixf dst_d,double* src_d,int3 dims)
+{
+	unsigned int idx = threadIdx.x;
+	unsigned int idy = threadIdx.y;
+	unsigned int idz = threadIdx.z;
+	unsigned int gidx = idx+blockIdx.x*blockDim.x;
+	unsigned int gidy = idy+blockIdx.y*blockDim.y;
+	unsigned int gidz = idz+blockIdx.z*blockDim.z;
+
+	unsigned int lid = idx+blockDim.x*(idy+blockDim.y*idz);
+	unsigned int gid = gidx+dims.x*(gidy+dims.y*gidz);
+
+	__shared__ float doubletoMatrixf_kerneltdata[512];
+
+	if((gidx < dims.x)&&(gidy < dims.y)&&(gidz < dims.z))
+	{
+		doubletoMatrixf_kerneltdata[lid] = src_d[gid];
+	}
+	__syncthreads();
+	if((gidx < dims.x)&&(gidy < dims.y)&&(gidz < dims.z))
+	{
+		dst_d(gidx,gidy,gidz) = doubletoMatrixf_kerneltdata[lid];
+	}
+}
+
+__noinline__ __host__
+void cudaMemcpydoubletofloat(float* dst_d,double* src_d,unsigned int nelements)
+{
+	unsigned int GridSize = (512+nelements-1)/512;
+
+	CUDA_SAFE_KERNEL((doubletofloat_kernel<<<GridSize,512>>>(dst_d,src_d,nelements)));
+
+	cudaThreadSynchronize();
+
+}
+
+__noinline__ __host__
+void cudaMemcpydoubletoMatrixf(cudaMatrixf dst_d,double* src_d)
+{
+	int3 dims;
+	int ndims = 0;
+	int nthreads;
+	dim3 cudaBlockSize(1,1,1);
+	dim3 cudaGridSize(1,1,1);
+	cudaExtent extent = dst_d.getdims();
+
+	dims.x = extent.width/sizeof(float);
+	dims.y = extent.height;
+	dims.z = extent.depth;
+
+	printf("dims = %i x %i x %i \n",dims.x,dims.y,dims.z);
+
+	if(dims.x > 1)
+		ndims++;
+	if(dims.y > 1)
+		ndims++;
+	if(dims.z > 1)
+		ndims++;
+
+	switch(ndims)
+	{
+	case 0:
+		return;
+	case 1:
+		nthreads = 512;
+		break;
+	case 2:
+		nthreads = 16;
+		break;
+	case 3:
+		nthreads = 8;
+		break;
+	default:
+		break;
+	}
+
+	if(dims.x > 1)
+		cudaBlockSize.x = nthreads;
+	if(dims.y > 1)
+		cudaBlockSize.y = nthreads;
+	if(dims.z > 1)
+		cudaBlockSize.z = nthreads;
+
+	cudaGridSize.x = (cudaBlockSize.x+dims.x-1)/cudaBlockSize.x;
+	cudaGridSize.y = (cudaBlockSize.y+dims.y-1)/cudaBlockSize.y;
+	cudaGridSize.z = (cudaBlockSize.z+dims.z-1)/cudaBlockSize.z;
+
+
+
+
+	CUDA_SAFE_KERNEL((doubletoMatrixf_kernel<<<cudaGridSize,cudaBlockSize>>>(dst_d,src_d,dims)));
+
+	cudaThreadSynchronize();
+
+}
+
+template<typename T>
+T* nbicudaMemcpy(T* dest,T* src,size_t* pitch,int width,int height)
+{
+	CUDA_SAFE_CALL(cudaMemcpy2D(dest,*pitch,src,*pitch,width*sizeof(T),height,cudaMemcpyHostToDevice));
+	return dest;
+}
+
+typedef float (*texFunctionPtr)(float,float,float);
+

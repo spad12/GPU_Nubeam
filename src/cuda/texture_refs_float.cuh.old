@@ -1,0 +1,313 @@
+#include "constants.cuh"
+
+
+// 1DLayered Textures
+
+
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered0;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered1;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered2;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered3;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered4;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered5;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered6;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered7;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered8;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered9;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered10;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered11;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered12;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered13;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered14;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered15;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered16;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered17;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered18;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered19;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered20;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered21;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered22;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered23;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered24;
+texture<float,cudaTextureType1DLayered,cudaReadModeElementType> texref1DLayered25;
+
+__device__
+float fetchtexref1DLayered0(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered0,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered1(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered1,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered2(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered2,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered3(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered3,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered4(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered4,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered5(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered5,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered6(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered6,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered7(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered7,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered8(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered8,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered9(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered9,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered10(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered10,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered11(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered11,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered12(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered12,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered13(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered13,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered14(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered14,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered15(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered15,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered16(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered16,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered17(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered17,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered18(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered18,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered19(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered18,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered20(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered19,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered21(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered20,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered22(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered21,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered23(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered22,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered24(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered23,x,rint(y));
+}
+__device__
+float fetchtexref1DLayered25(float x,float y,float z)
+{
+	return tex1DLayered(texref1DLayered24,x,rint(y));
+}
+
+
+// 2D Textures
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D0;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D1;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D2;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D3;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D4;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D5;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D6;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D7;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D8;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D9;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D10;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D11;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D12;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D13;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D14;
+texture<float,cudaTextureType2D,cudaReadModeElementType> texref2D15;
+
+
+__device__
+float fetchtexref2D0(float x,float y,float z)
+{
+	return tex2D(texref2D0,x,y);
+}
+__device__
+float fetchtexref2D1(float x,float y,float z)
+{
+	return tex2D(texref2D1,x,y);
+}
+__device__
+float fetchtexref2D2(float x,float y,float z)
+{
+	return tex2D(texref2D2,x,y);
+}
+__device__
+float fetchtexref2D3(float x,float y,float z)
+{
+	return tex2D(texref2D3,x,y);
+}
+__device__
+float fetchtexref2D4(float x,float y,float z)
+{
+	return tex2D(texref2D4,x,y);
+}
+
+__device__
+float fetchtexref2D5(float x,float y,float z)
+{
+	return tex2D(texref2D5,x,y);
+}
+__device__
+float fetchtexref2D6(float x,float y,float z)
+{
+	return tex2D(texref2D6,x,y);
+}
+__device__
+float fetchtexref2D7(float x,float y,float z)
+{
+	return tex2D(texref2D7,x,y);
+}
+__device__
+float fetchtexref2D8(float x,float y,float z)
+{
+	return tex2D(texref2D8,x,y);
+}
+__device__
+float fetchtexref2D9(float x,float y,float z)
+{
+	return tex2D(texref2D9,x,y);
+}
+__device__
+float fetchtexref2D10(float x,float y,float z)
+{
+	return tex2D(texref2D10,x,y);
+}
+__device__
+float fetchtexref2D11(float x,float y,float z)
+{
+	return tex2D(texref2D11,x,y);
+}
+__device__
+float fetchtexref2D12(float x,float y,float z)
+{
+	return tex2D(texref2D12,x,y);
+}
+__device__
+float fetchtexref2D13(float x,float y,float z)
+{
+	return tex2D(texref2D13,x,y);
+}
+__device__
+float fetchtexref2D14(float x,float y,float z)
+{
+	return tex2D(texref2D14,x,y);
+}
+__device__
+float fetchtexref2D15(float x,float y,float z)
+{
+	return tex2D(texref2D15,x,y);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

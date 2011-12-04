@@ -1,0 +1,35 @@
+K 25
+svn:wc:ra_dav:version-url
+V 77
+/repos/transp/!svn/ver/15114/trunk/nubeam_gpu/src/fortran/nubeam_replacements
+END
+Make2
+K 25
+svn:wc:ra_dav:version-url
+V 83
+/repos/transp/!svn/ver/15244/trunk/nubeam_gpu/src/fortran/nubeam_replacements/Make2
+END
+nbspline_mod_gpu.f90
+K 25
+svn:wc:ra_dav:version-url
+V 98
+/repos/transp/!svn/ver/15114/trunk/nubeam_gpu/src/fortran/nubeam_replacements/nbspline_mod_gpu.f90
+END
+nbspline_gpu.F90
+K 25
+svn:wc:ra_dav:version-url
+V 94
+/repos/transp/!svn/ver/15114/trunk/nubeam_gpu/src/fortran/nubeam_replacements/nbspline_gpu.F90
+END
+orball_gpu.F
+K 25
+svn:wc:ra_dav:version-url
+V 90
+/repos/transp/!svn/ver/15114/trunk/nubeam_gpu/src/fortran/nubeam_replacements/orball_gpu.F
+END
+Makefile
+K 25
+svn:wc:ra_dav:version-url
+V 86
+/repos/transp/!svn/ver/15114/trunk/nubeam_gpu/src/fortran/nubeam_replacements/Makefile
+END

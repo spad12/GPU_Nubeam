@@ -1,0 +1,272 @@
+#GNU Makefile to build nubeam 
+#
+#04/22/02 C. Ludescher-Furth : created
+#
+#01/09/09 CLF: support mpi
+
+ifneq ($(MAKELEVEL),0)
+# if OBJ was defined for main Makefile one level down
+ifeq ("${OBJ}",".")
+	override OBJ=..
+endif
+endif
+
+# define system dependent flags, etc.
+-include  ../share/Make.local
+-include ../share/Make.flags
+
+
+OBJDIR = $(OBJ)/obj/nubeam
+
+ifdef MPI_ACTIVATE
+  ARC = $(OBJ)/lib/libmpi_nubeam.a
+  PORTLIB = -lmpi_portlib
+  NBDEBUG = -lmpi_nbdebug
+  NTEST = $(OBJ)/test/mpi_nubeam_test
+  NOBJ  = mpi_nubeam_test.o
+  NLIB = mpi_nubeam
+  MDIR = $(OBJ)/mpi_mod
+  Z := $(MODDIR:mod=mpi_mod)
+  MODDIR = $(Z)
+  MODFLAGS := $(MFLAGS)$(MDIR) $(MODFLAGS)
+  FC   = $(MPI_FC)
+  FC90 = $(MPI_FC)
+  CC   = $(MPI_CC)
+  CXX  = $(MPI_CXX)
+  FFLAGS := $(MPI_FFLAGS)
+  DFFLAGS := $(MPI_DFFLAGS)
+  CFLAGS = $(MPI_CFLAGS)
+  DCFLAGS = $(MPI_DCFLAGS)
+  CXXFLAGS = $(MPI_CXXFLAGS)
+  DCXXFLAGS = $(MPI_DCXXFLAGS)
+  LDFLAGS := $(MPI_LDFLAGS)
+else
+  ARC = $(OBJ)/lib/libnubeam.a
+  PORTLIB = -lportlib
+  NBDEBUG = -lnbdebug
+  NTEST = $(OBJ)/test/nubeam_test
+  NOBJ  = nubeam_test.o
+  NLIB = nubeam
+endif
+
+ifdef DEBUG
+	FFLAGS = $(DFFLAGS)
+	CFLAGS = $(DCFLAGS)
+	CXXFLAGS = $(DCXXFLAGS)
+endif
+
+# don't rebuild library if using installed one in $PREFIX 
+ifeq ($(MAKELEVEL),0)
+	THISLIB=$(ARC)
+endif
+
+#=============================================================
+# f90 modules
+# public modules names
+
+Mnams = nbi_fbm_random.mod nbi_dimensions.mod nbi_com.mod nbi_random.mod \
+	nbi_types.mod \
+	nbdep_debug.mod  map_larmor_mod.mod  nbatom_mod.mod nbi_idhdr.mod \
+	nbi_strline.mod nbspline_mod.mod xjasub_mod.mod \
+        dep_mpi_split.mod nbi_mpi_com.mod tube_mod.mod \
+	nbi_pllbuf.mod nbi_random_pll.mod nbi_random_nbkill.mod \
+	nbi_mpi_com.mod orbrzv.mod nbi_bcastbuf.mod nbi_pstypes.mod \
+	nbi_out_avg.mod nbi_random_dep.mod nbo_ascii_mod.mod \
+	adas_getsigs.mod adas_sigfacz.mod
+
+# all modules file names - order of copilation 
+Mobjs = nbi_fbm_random.o nbi_dimensions_mod.o  nbi_com_mod.o nbi_random.o \
+	nbi_types.o \
+	nbdep_debug_module.o  map_larmor.o  nbatom_mod.o  nbi_idhdr.o \
+	nbi_strline.o nbspline_mod.o xjasub_mod.o  \
+        dep_mpi_split_mod.o nbi_mpi_com.o tube_mod.o \
+	nbi_pllbuf.o nbi_random_pll.o nbi_random_nbkill.o \
+	nbi_mpi_com.o orbrzv.o nbi_bcastbuf.o nbi_pstypes.o \
+	nbi_out_avg.o nbi_random_dep.o nbo_ascii_mod.o getsigs_adas.o \
+	sigfacz_adas.o gpu_orbit_input.o \
+  orbit_gpu.o display_orbits.o
+	 
+
+MODS = $(foreach file,$(Mobjs),$(ARC)($(file)))
+
+ifeq ($(MODUP),Y)
+ MODS0=$(foreach m,$(Mnams),$(shell  echo $(m) | tr 'a-z' 'A-Z'))
+ MODULES=$(foreach m,$(MODS0),$(subst .MOD,.$(MODEXT),$(m)))
+else
+ MODULES = $(foreach m,$(Mnams),$(subst .mod,.$(MODEXT),$(m)))
+endif 
+ 
+# fortran archive members
+F1 = $(subst .f90,.o, $(wildcard *.f90)) $(subst .f,.o, $(wildcard *.f))
+F2 = $(subst .F90,.o, $(wildcard *.F90)) $(subst .F,.o, $(wildcard *.F))
+CU = $(subst .cu,.o, $(wildcard *.cu)) $(subst .cu,.o, $(wildcard *.cu))
+FALL = $(F1) $(F2) $(CU)
+#remove test programs
+FMEM =$(filter-out nubeam_test.o, $(FALL))
+
+CPP  = $(subst .cpp,.o, $(wildcard *.cpp))
+MALL = $(FMEM) $(CPP) $(CU)
+MEM = $(foreach file,$(MALL),$(ARC)($(file)))
+
+#ifeq ($(MACHINE),RS6000)
+  LDLIBS = -L$(OBJ)/lib $(NBDEBUG) -l$(NLIB) -lrfxqlo -lkdsaw -lxstraln \
+	-lplot_fpreact $(LLOC) -lfpreact -lpreact \
+	 -lsigsub -laladdinsub -ladpak -lcppsub -lold_xplasma \
+	 -lxplasma_debug -lxplasma2 \
+	 -lgeqdsk_mds -lmdstransp -lfluxav -lmclib -lsmlib -lnscrunch \
+	 -ltridiag \
+	 -lr8bloat -lpspline -lezcdf -ltrgraf -lureadsub -lsg -ljc \
+	 -lcomput -lr8slatec -llsode -llsode_linpack -lrandom \
+	 -luflib -lmds_sub -lmdstransp -lufhdf -lelvislib -lvaxonly $(PORTLIB)
+#else
+#  LDLIBS = -L$(OBJ)/lib $(NBDEBUG) -l$(NLIB) -lrfxqlo -lkdsaw -lxstraln \
+#	 -lplot_fpreact  $(LLOC) -lfpreact -lpreact \
+#	 -lsigsub -laladdinsub -lold_xplasma -lxplasma_debug -lxplasma2 \
+#	 -lgeqdsk_mds -lmdstransp -lfluxav -lmclib -lsmlib -lnscrunch \
+#	 -ltridiag \
+#	 -lr8bloat -lpspline -lezcdf -ltrgraf -lureadsub -lsg -ljc \
+#	 -lcomput -lr8slatec -llsode -llsode_linpack -lrandom \
+#	 -luflib -lmds_sub -lmdstransp -lufhdf -lelvislib -lvaxonly $(PORTLIB)
+#endif
+OBJ_TEK=$(OBJDIR)/tek2ps.o $(OBJDIR)/tekopt.o
+
+srcdir  = $(shell pwd)
+testdir = $(shell cd $(OBJ)/test; pwd)
+
+DATA    = $(wildcard *.cdf) \
+	  sample_run.ind $(wildcard *.csh) \
+	  $(wildcard sample_run_output.*) \
+	  tek2ps_sh tek2ps.pro  
+
+.PHONY: clean realclean checkdirs all exec
+
+
+libs: FORCE $(ARC)
+ 
+all: libs exec 
+	@echo done  
+
+$(OLDLIB): timestamp.inf
+	@echo "--- DETECTED xplasma.a source update"
+	@echo "--- Re-Making $(ARC)"
+	@$(MAKE) libs
+
+FORCE: chkdirs
+	@test -d $(OBJ)/lib || mkdir -p $(OBJ)/lib
+	@test -d $(MDIR) || mkdir -p $(MDIR)
+
+chkdirs:
+	@test -d $(OBJ)/test || mkdir -p $(OBJ)/test
+	@test -d $(OBJDIR)   || mkdir -p $(OBJDIR)
+
+$(ARC): $(MODS) $(MEM)
+	@$(RANLIB) $@ > /dev/null
+
+# Compile CUDA Code
+$(ARC)(%.o): %.cu
+	$(NVCC) -c $(NVCCFLAGS) -o $(OBJDIR)/$*.o $<
+	$(make_ar)
+	
+#pre-process/compile fixed length fortran 90 code
+$(ARC)(%.o): %.F
+	$(F_proc)
+	$(make_ar)
+
+#  compile fixed length fortran 90 code
+$(ARC)(%.o): %.f
+	$(FC) $(FFLAGS) $(MODFLAGS) -I./ $(INCFLAGS) $(OUT) $(OBJDIR)/$*.o $<
+	$(make_ar)
+
+#  compile free form fortran 90 code
+$(ARC)(%.o): %.f90
+	$(FC90) $(FFLAGS) $(MODFLAGS) -I./ $(INCFLAGS) $(OUT) $(OBJDIR)/$*.o $<
+	$(make_ar)
+
+# pre-process/compile free form fortran 90 code
+$(ARC)(%.o): %.F90
+	$(F90_proc)
+	$(make_ar)
+
+$(ARC)(%.o): %.cpp
+	$(cxx_proc)
+	$(make_ar)
+
+#
+#---------------------------------------------------
+#
+# Build Test Programs
+#=====================
+# pre-pocess / compile .F
+
+$(OBJDIR)/mpi_nubeam_test.o: nubeam_test.F90
+	$(proc_F90)
+
+$(OBJDIR)/nubeam_test.o: nubeam_test.F90
+	$(proc_F90)
+
+# Compile CUDA Code
+$(OBJDIR)/%.o: %.cu
+	$(NVCC) -c $(NVCCFLAGS) -o $(OBJDIR)/$*.o $<
+
+$(OBJDIR)/%.o: %.f90
+	$(FC90) $(FFLAGS) $(MODFLAGS) -I./ $(INCFLAGS) $(OUT) $@ $<
+
+$(OBJDIR)/%.o: %.F90
+	$(F90_proc)
+
+
+exec: chkdirs chktest $(NTEST) $(OBJ)/test/tek2ps
+
+chktest:
+	@for i in $(DATA); do \
+	(cd $(OBJ)/test; $(TSTLNK) $$i || ln -s $(srcdir)/$$i $$i;) done 
+
+
+$(NTEST): $(OBJDIR)/$(NOBJ)
+ifeq ("${USEFC}","Y")
+	-$(FC) $(LDFLAGS) -o $@ $< $(LDLIBS) $(LUSRLIB) $(NETCDF) $(HDF) $(LAPACK) $(BLAS) $(XFLIB) $(XLIBS) $(MDSLIB) $(EDITLIBS) $(CLIBS) 
+else
+	-$(CXX) $(LDFLAGS) -o $@ $< $(F_MAIN) $(LDLIBS) $(LUSRLIB) $(NETCDF) $(HDF)  $(LAPACK) $(BLAS) $(XFLIB) $(XLIBS) $(MDSLIB) $(EDITLIBS) $(FORTLIBS) 
+endif
+
+
+$(OBJ)/test/tek2ps: $(OBJ_TEK)
+	$(CC) $(LDFLAGS) -o $@ $(OBJDIR)/tek2ps.o $(OBJDIR)/tekopt.o
+
+$(OBJDIR)/tek2ps.o:  tek2ps.c tek41.h
+	$(CC) $(CFLAGS) $(CDEFS) -o $@ $<
+
+$(OBJDIR)/tekopt.o:  tekopt.c
+	$(CC) $(CFLAGS)  -o $@ $<
+
+
+#-------------------------------------------------------------------------
+ckins:
+	@test -d $(LIBDIR) || mkdir -p $(LIBDIR)
+	@test -d $(MODDIR) || mkdir -p $(MODDIR)
+	@test -d $(BINDIR) || mkdir -p $(BINDIR)
+
+install: ckins 
+	@if test -f $(ARC); then \
+	  umask 133; cp $(ARC) $(LIBDIR)/; \
+	else test -f $(LIBDIR)/lib$(NLIB).a || echo ">>> can not find $(ARC)";fi;
+	$(foreach file,$(MODULES),$(shell cp $(MDIR)/$(file) $(MODDIR)/))
+	umask 022; cp $(NTEST) $(BINDIR)/
+
+uninstall:
+	$(foreach m,$(MODULES),$(shell rm -f $(MODDIR)/$(m) ))
+	rm -f $(LIBDIR)/lib$(NLIB).a
+	rm -f $(BINDIR)/*nubeam_test
+
+clean: 
+	@rm -f $(OBJDIR)/*
+	@rm -f $(NTEST)
+
+realclean: clean
+	@rm -f $(ARC)
+	@if test -d $(MDIR); then \
+	  (cd $(MDIR); rm -f $(MODULES)); fi
+	@if test -d $(OBJ)/test; then \
+	  (cd $(OBJ)/test; rm -f $(DATA)); fi
+
+

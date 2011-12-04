@@ -1,0 +1,30 @@
+This is the TODO, and future improvements list for nubeam_gpu
+
+TODO
+- Integrate and debug collide routine.
+- Find and fix some device memory leaks
+- Fix issue with charge_exchange routines using single precision.
+- Implement key outputs for validation:
+	--electron heating profile
+	--ion heating profile
+	--beam ion density profile
+	--current drive profile
+	--torque profile
+	--distribution function
+- Validate single-gpu code using profile outputs and the visualization routine.
+- Implement multi-gpu capability, integrated with mpi-nubeam
+- Test ONETWO with gpu version of nubeam
+
+
+Future Improvements:
+(ie Things that I'm going to do to simplify things / improve performance)
+1. Merge all species, get rid of the 2D particle list arrays, use only a 1D list of mixed species.
+	- This will involve changing all references of 'idBeam' from using blockIdx.y, to instead use a 'species' number from the particle list. 
+	- Adjust the sort routine so that the sort key is based on the product of the cellindex and species index. Further adjustments to the sorting routine will be needed to optimize for outputting the density profile. (ie sort by velocity->cellindex->species)
+	- The goal of this change is to increase kernel occupancy and reduce the number of empty kernels.
+
+2. Implement a method to put specific particle members into shared memory. The specific members could be set by an array of chars, 1 for shared memory, 0 for global memory. Or based off of the bits of a 64bit integer. The space for the shared arrays can be pulled from a dynamic shared memory pool. 
+
+3. Reduce the number of particle list splittings. Possibly merge the nutrav/beamcx kernels. This may be unnecessary, it depends on how much of the total run time comes from splitting the particle list. 
+
+

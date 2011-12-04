@@ -1,0 +1,386 @@
+
+#include "particleclass.cuh"
+#include <iostream>
+
+
+__global__
+void XPlist_move_kernel(XPlist particles,XPgrid* fields,
+										  cudaMatrixd2 Cellpositions,cudaMatrixd orbit_error,
+										  int3* blockInfo,int istep)
+{
+	unsigned int idx = threadIdx.x;
+	unsigned int bidx = blockIdx.x;
+	unsigned int gidx = blockInfo[blockIdx.x].y+idx;
+	unsigned int tid;
+	int cellindex_old = blockInfo[bidx].x;
+
+	float mu;
+
+	float energy0;
+	float momentum0;
+	float B;
+
+	// Results of the rk4 calculations;
+	float3 initialvalues;
+	float3 result[3];
+	// Temporary variable for error calculation
+	float3 temp;
+
+	// dt is used a lot, so we'll stick it in shared memory
+	__shared__ float dt[BLOCK_SIZE];
+
+	// The local particle list, some members will exist in shared memory
+	__shared__ XPlist localion;
+
+	__shared__ int2 cell; // The R and Z index of the cell
+	__shared__ int2 GridInfo; // the R and Z integer dimensions of the grid
+	__shared__ float2 origin; // The R and Z coordinates of the bottom right corner of the cell
+
+	// Splines that describe the fields for this cell
+	__shared__ XPgrid Psispline = fields[0];
+	__shared__ XPgrid gspline = fields[1];
+	__shared__ XPgrid Phispline = fields[2];
+	__shared__ float2 Gridpoints[4][4];
+
+	// Setup Shared XPlist
+	localion.allocate_shared();
+
+	// Copy data from global memory to shared memory
+	localion.copyfromglobal(particles);
+
+	if(idx == 0)
+	{
+		cell.x = localion.nx[gidx];
+		cell.y = localion.ny[gidx];
+		origin = Cellpositions(cell.x,cell.y);
+		GridInfo = fields[0].griddims;
+	}
+	__syncthreads();
+
+	// Allocate space in shared memory for shared copy of splines
+	Psispline.allocate_local();
+	gspline.allocate_local();
+	Phispline.allocate_local();
+
+	if(idx == 0)
+	{
+		Psispline.origin = origin;
+		gspline.origin = origin;
+		Phispline.origin = origin;
+	}
+
+	tid = cell.x+gridSetupIDs_x[idx-((idx/16)*16)]+GridInfo.x*(cell.y+gridSetupIDs_y[idx-((idx/16)*16)]);
+
+
+	// Copy Splines to shared memory
+	if(idx < 16) Psispline.spline[idx] = fields[0].spline[tid];
+	else if(idx < 32)gspline[idx-16] = fields[0].spline[tid];
+	else if(idx < 48) Phispline[idx-32] = fields[2].spline[tid];
+	else if(idx < 64) Gridpoints[gridSetupIDs_x[idx-48]][gridSetupIDs_y[idx-48]] =
+			Cellpositions(cell.x+gridSetupIDs_x[idx-48],cell.y+gridSetupIDs_y[idx-48]);
+
+	__syncthreads();
+
+	if(idx < localion.nptcls)
+	{
+		B = localion.eval_Bmod(Psispline,gspline);
+		mu = 0.5*localion.mass[idx]*ZMP*localion.vperp[idx]*localion.vperp[idx]/B;
+	}
+
+	// Figure out what the timestep should be
+	dt[idx] = localion.eval_dt(Psispline.gridspacing.x,Psispline.gridspacing.y);
+
+	//RK1
+	for(int i=0;i<3;i++)
+	{
+		result[i] = localion.XPlist_derivs(Psispline,gspline,Phispline,mu);
+		localion.px[idx] = initialvalues.x+rk4_mults[i]*dt[idx]*result[i].x;
+		localion.py[idx] = initialvalues.y+rk4_mults[i]*dt[idx]*result[i].y;
+		localion.vpara[idx] = initialvalues.z+rk4_mults[i]*dt[idx]*result[i].z;
+		if(!localion.check_orbit())
+		{
+			// If the particle has left the grid, it needs to stop orbiting
+			break;
+		}
+	}
+
+
+	if(localion.check_orbit())
+	{
+		result[3] = localion.XPlist_derivs(Psispline,gspline,Phispline,mu);
+
+		localion.px[idx] =initialvalues.x+dt[idx]*(result[0].x+2*result[1].x+2*result[2].x+result[3].x)/6.0;
+		localion.py[idx] =initialvalues.y+dt[idx]*(result[0].y+2*result[1].y+2*result[2].y+result[3].y)/6.0;
+		localion.vpara[idx] =initialvalues.z+dt[idx]*(result[0].z+2*result[1].z+2*result[2].z+result[3].z)/6.0;
+
+		result[3] = localion.XPlist_derivs(Psispline,gspline,Phispline,mu);
+
+		temp.x = initialvalues.x+dt[idx]*(result[0].x+2*result[1].x+2*result[2].x+result[3].x)/6.0;
+		temp.y = initialvalues.y+dt[idx]*(result[0].y+2*result[1].y+2*result[2].y+result[3].y)/6.0;
+		temp.z = initialvalues.z+dt[idx]*(result[0].z+2*result[1].z+2*result[2].z+result[3].z)/6.0;
+
+		orbit_error(gidx,0) = (localion.px[idx]-temp.x)/6.0;
+		orbit_error(gidx,1) = (localion.py[idx]-temp.y)/6.0;
+		orbit_error(gidx,2) = (localion.vpara[idx]-temp.z)/6.0;
+
+		orbit_error(gidx,0) = fabs(orbit_error(gidx,0)/(fabs(initialvalues.x+0.5*dt[idx]*result[0].x))+epsilon);
+		orbit_error(gidx,1) = fabs(orbit_error(gidx,1)/(fabs(initialvalues.y+0.5*dt[idx]*result[0].y))+epsilon);
+		orbit_error(gidx,2) = fabs(orbit_error(gidx,2)/(fabs(initialvalues.z+0.5*dt[idx]*result[0].z))+epsilon);
+	}
+	else
+	{
+		if(idx < localion.nptcls)
+		{// Particles that have left the grid in the orbit process
+			orbit_error(gidx,0) = 0;
+			orbit_error(gidx,1) = 0;
+			orbit_error(gidx,2) = 0;
+
+			localion.energy[idx] = energy0;
+			localion.momentum[idx] = momentum0;
+
+		}
+	}
+
+	if(idx < localion.nptcls)
+	{
+		orbit_error(gidx,4) = fabs(localion.energy[idx]-energy0)/(fabs(energy0)+epsilon);
+		orbit_error(gidx,5) = fabs(localion.momentum[idx]-momentum0)/(fabs(momentum0)+epsilon);
+
+		temp.x = orbit_error(gidx,0);
+
+		for(int i=1;i<6;i++)
+		{
+			temp.x = fmax(temp.x,orbit_error(gidx,i));
+		}
+
+		orbit_error(gidx,0) = temp.x;
+	}
+
+	if(localion.check_orbit()) localion.vperp[idx] = sqrt(2*mu*B/(localion.mass[idx]*ZMP));
+
+	particles.copyfromshared(localion);
+
+
+}
+
+
+__host__
+void move_particles(XPgrid* fields,XPlist particles,XPlist particles_old,double dt,int nptcls)
+{
+
+	cudaError status;
+
+	dim3 cudaGridSize(1,1,1);
+	dim3 cudaBlockSize(1,1,1);
+	size_t free2 = 0;
+	size_t total = 0;
+
+	int2 Pgrid_i_dims = fields[0].griddims;
+	double2 Pgridspacing = fields[0].gridspacing;
+
+	int cudaGridSize1 = (nptcls+threadsPerBlock-1)/threadsPerBlock;
+
+	int* nptcls_left_d;
+	int* nptcls_left_h = (int*)malloc(sizeof(int));
+	int* didileave;
+	int gridSize = Pgrid_i_dims.x*Pgrid_i_dims.y;
+
+
+	int* NptinCell = (int*)malloc(gridSize*sizeof(float));
+	int* nBlocks_h = (int*)malloc(sizeof(int));
+	int* nBlocks_d;
+//	printf("CudaMalloc1 \n");
+	cudaMalloc((void**)&nBlocks_d,sizeof(int));
+	cudaThreadSynchronize();
+
+	int2* cellInfo_h = (int2*)malloc((gridSize+1)*sizeof(int2));
+
+	int2* cellInfo_d;
+//	printf("CudaMalloc2 \n");
+	cudaMalloc((void**)&cellInfo_d,(gridSize+1)*sizeof(int2));
+	cudaThreadSynchronize();
+	cudaMemset(cellInfo_d,0,(gridSize+1)*sizeof(int2));
+
+	int* redoxtemp_d;
+//	printf("CudaMalloc4 \n");
+	cudaMalloc((void**)&redoxtemp_d,((gridSize+threadsPerBlock+1)/threadsPerBlock)*sizeof(int));
+	cudaThreadSynchronize();
+	cudaMemset(redoxtemp_d,0,((gridSize+threadsPerBlock+1)/threadsPerBlock)*sizeof(int));
+
+
+	int3* blockinfo_d; // grid index, first particle index, number of particles in block
+	int3* blockinfo_h;
+
+	// Figure out how many particles are in each cell
+	cudaGridSize.x = (nptcls+threadsPerBlock-2)/threadsPerBlock;
+
+//	printf("Launching Count Particles Kernel \n");
+	count_particles<<<cudaGridSize,threadsPerBlock>>>(*this,cellInfo_d,nptcls,gridSize);
+	cudaThreadSynchronize();
+	status = cudaGetLastError();
+	 if(status != cudaSuccess){fprintf(stderr, "count particles %s\n", cudaGetErrorString(status));}
+
+	 // Fix the cellinfo array for errors from cells with 0 particles
+	cudaGridSize = (gridSize+threadsPerBlock-1)/threadsPerBlock;
+
+//	printf("Launching Fix Cellinfo Kernel \n");
+	fix_cellinfo<<<cudaGridSize, threadsPerBlock>>>(cellInfo_d,gridSize);
+	cudaThreadSynchronize();
+	status = cudaGetLastError();
+	 if(status != cudaSuccess){fprintf(stderr, "Fix Cell Info %s\n", cudaGetErrorString(status));}
+
+	// Figure out how many thread blocks are needed for each cell and the total number of thread blocks
+
+//	printf("Launching Count Blocks Kernel \n");
+	count_blocks<<<cudaGridSize, threadsPerBlock>>>(cellInfo_d,redoxtemp_d,nBlocks_d,gridSize);
+	cudaThreadSynchronize();
+	status = cudaGetLastError();
+	 if(status != cudaSuccess){fprintf(stderr, "count blocks %s\n", cudaGetErrorString(status));}
+	cudaMemcpy(cellInfo_h,cellInfo_d,(gridSize+1)*sizeof(int2),cudaMemcpyDeviceToHost);
+	cudaMemcpy(nBlocks_h,nBlocks_d,sizeof(int),cudaMemcpyDeviceToHost);
+	status = cudaGetLastError();
+	 if(status != cudaSuccess){fprintf(stderr, "cpy block count %s\n", cudaGetErrorString(status));}
+	cudaThreadSynchronize();
+
+	printf(" nblocks = %i \n",nBlocks_h[0]);
+
+	if(nBlocks_h[0] > nptcls)
+	{
+		printf(" error, nBlocks way to big, returning \n");
+		return;
+	}
+
+	cudaMemGetInfo(&free2,&total);
+	printf("Free Memory = %i mb\nUsed mememory = %i mb\n",(int)(free2)/(1<<20),(int)(total-free2)/(1<<20));
+
+
+	// Populate blockInfo
+	cudaGridSize1 = nBlocks_h[0];
+	cudaMalloc((void**)&blockinfo_d,nBlocks_h[0]*sizeof(int3));
+	blockinfo_h = (int3*)malloc(nBlocks_h[0]*sizeof(int3));
+//	printf("Finished Move Kernel \n");
+
+
+	cudaMalloc((void**)&nptcls_left_d,(cudaGridSize1+1)*sizeof(int));
+	cudaMalloc((void**)&didileave,nptcls*sizeof(int));
+	cudaMemset(nptcls_left_d,0,(cudaGridSize1+1)*sizeof(int));
+
+	populate_blockinfo(blockinfo_h,cellInfo_h,gridSize);
+
+	cudaMemcpy(blockinfo_d,blockinfo_h,nBlocks_h[0]*sizeof(int3),cudaMemcpyHostToDevice);
+	cudaThreadSynchronize();
+	status = cudaGetLastError();
+	if(status != cudaSuccess){fprintf(stderr, " kernel %s\n", cudaGetErrorString(status));}
+
+
+	 // Move the particles
+//	printf("Launching Move Kernel \n");
+
+	XPlist_move_kernel_sorted_shared<<<cudaGridSize1,threadsPerBlock>>>(*this,
+																Pgridspacing, Pgrid_i_dims, Phi,
+																rho,dt,nptcls_left_d,didileave,
+																blockinfo_d);
+
+	cudaThreadSynchronize();
+//	printf("Finished Move Kernel \n");
+	status = cudaGetLastError();
+	if(status != cudaSuccess){fprintf(stderr, "move kernel %s\n", cudaGetErrorString(status));}
+
+
+//	if(nptcls_left_h[0] < nptcls)
+	//	inject_new_particles(didileave,nptcls_left_h[0]);
+
+	cudaFree(nptcls_left_d);
+	cudaFree(didileave);
+	cudaFree(blockinfo_d);
+	cudaFree(cellInfo_d);
+	cudaFree(redoxtemp_d);
+	cudaFree(nBlocks_d);
+	free(cellInfo_h);
+	free(blockinfo_h);
+
+//	printf("Finished freeing stuff \n");
+	//cudaThreadSynchronize();
+
+
+}
+
+
+
+
+
+int main(void)
+{
+
+	int nx = 64;
+	int ny = 64;
+	int nptcls;
+
+	// Setup Grid Parameters
+
+	double2 griddims;
+	int2 grid_i_dims;
+	double2 gridspacing;
+
+	griddims.x = 1500.0; // (mm) DIII-D Major Radius + minor radius
+	griddims.y = 600.0; // 2* minor radius
+
+	grid_i_dims.x = nx;
+	grid_i_dims.y = ny;
+
+	gridspacing.x = griddims.x/((double)nx);
+	gridspacing.y = griddims.y/((double)ny);
+
+	// Setup particle list
+
+	XPlist particles_h(nptcls,host);
+
+	XPlist particles_d(nptcls,device);
+
+	// Setup an Efield and a Bfield
+
+	XPgrid Bfield;
+
+	XPgrid Efield;
+
+	// Setup a particle distribution
+
+	particles_h.random_distribution(grid_i_dims,gridspacing);
+
+	 XPlistCopy(particles_d, particles_h,nptcls, cudaMemcpyHostToDevice);
+	 cudaThreadSynchronize();
+
+	 particles_d.sort(gridspacing,grid_i_dims);
+
+
+
+
+
+
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
