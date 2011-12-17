@@ -5,6 +5,19 @@
 XPlist particles_done_per_step[16];
 int finished_particle_list_counter;
 
+extern "C" void start_timer_(uint* timer)
+{
+	cutCreateTimer(timer);
+	cutStartTimer(*timer);
+}
+
+extern "C" void stop_timer_(float* time,uint* timer)
+{
+	cutStopTimer(*timer);
+	*time += cutGetTimerValue(*timer);
+	cutDeleteTimer(*timer);
+}
+
 __host__
 void append_finished_particle_table(XPlist finished_list)
 {
@@ -438,6 +451,10 @@ void move_particles_shared(Environment* plasma_d,XPlist* particles,XPlist* parti
 
 }
 */
+
+
+__constant__ int ireals_move[10] = {1,2,4,6,8,10,11,12,14,15};
+
 __global__
 void XPlist_move_kernel(XPlist* particles,XPlist* particles_old,Environment* plasma_in,
 										  cudaMatrixr orbit_error,cudaMatrixui splitting_condition,
@@ -482,9 +499,11 @@ void XPlist_move_kernel(XPlist* particles,XPlist* particles_old,Environment* pla
 	int iorberr = 0;
 
 	// dt is used a lot, so we'll stick it in shared memory
-	__shared__ realkind dt[BLOCK_SIZE];
+	__shared__ realkind dt[ORBIT_BLOCK_SIZE];
+	__shared__ realkind sdata[10*ORBIT_BLOCK_SIZE];
 
 	// The local particle list, some members will exist in shared memory
+	__shared__ XPlist lparticles;
 	__shared__ XPlist localion;
 
 	__shared__ realkind2 origin; // The R and Z coordinates of the bottom right corner of the cell
@@ -503,6 +522,14 @@ void XPlist_move_kernel(XPlist* particles,XPlist* particles_old,Environment* pla
 	// Copy data from global memory to shared memory
 	localion.shift_local(particles,block_start);
 
+	__syncthreads();
+
+	if(idx == 0)
+	{
+		//localion = lparticles;
+	}
+
+	//localion.shift_shared<0>(&lparticles,sdata,ireals_move,10);
 
 
 
@@ -527,6 +554,22 @@ void XPlist_move_kernel(XPlist* particles,XPlist* particles_old,Environment* pla
 	{
 		orbflag = localion.orbflag[idx];
 		localion.old_idx[idx] = gidx;
+#ifdef Animate_orbits
+
+		if((localion.original_idx[idx] % SPHERE_SPACING) == 0)
+		{
+			if(localion.check_orbit(plasma_in) == 0)
+			{
+				px(localion.original_idx[idx],idBeam,istep) = localion.px[0][idx];
+				py(localion.original_idx[idx],idBeam,istep) = localion.py[0][idx];
+			}
+			else
+			{
+				px(localion.original_idx[idx],idBeam,istep) = -100.0;
+				py(localion.original_idx[idx],idBeam,istep) = -100.0;
+			}
+		}
+#endif
 	}
 	else
 	{
@@ -537,14 +580,7 @@ void XPlist_move_kernel(XPlist* particles,XPlist* particles_old,Environment* pla
 
 	if(orbflag == 1)
 	{
-#ifdef Animate_orbits
 
-		if((localion.original_idx[idx] % SPHERE_SPACING) == 0)
-		{
-			px(localion.original_idx[idx],idBeam,istep) = localion.px[0][idx];
-			py(localion.original_idx[idx],idBeam,istep) = localion.py[0][idx];
-		}
-#endif
 		mu = localion.mu[idx];
 
 		// Figure out what the timestep should be
@@ -643,10 +679,6 @@ void XPlist_move_kernel(XPlist* particles,XPlist* particles_old,Environment* pla
 
 			if(orbflag == 1)
 			{
-				nx = max(0,min(nr-1,localion.nx[0][idx]));
-				ny = max(0,min(nz-1,localion.ny[0][idx]));
-				localion.cellindex[0][idx] = localion.eval_NGC(plasma_in,idx,0);
-
 
 
 				temp.x = orbit_error(gidx,idBeam,0);
@@ -672,6 +704,7 @@ void XPlist_move_kernel(XPlist* particles,XPlist* particles_old,Environment* pla
 					if(dt[idx] <= orbit_dt_min)
 					{
 						localion.orbflag[idx] = 0;
+						orbflag = 0;
 						localion.pexit[idx] = XPlistexit_dtmin;
 						break;
 					}
@@ -695,24 +728,18 @@ void XPlist_move_kernel(XPlist* particles,XPlist* particles_old,Environment* pla
 					// Increase the error if it is too small
 					if(orberror > znrc_errcon)
 					{
-						dt[idx] *= (0.9*pow(orberror,znrc_pgrow));
+						localion.deltat[idx] = dt[idx]*(0.9*pow(orberror,znrc_pgrow));
 					}
 					else
 					{
-						dt[idx] *= 5.0;
+						localion.deltat[idx] = 2.5*dt[idx];
 					}
-
-					localion.deltat[idx] = dt[idx];
 
 					break;
 				}
-
-
-
 			}
 			else
 			{
-				localion.cellindex[0][idx] = 2*plasma_in->ntransp_zones;
 				break;
 			}
 
@@ -723,7 +750,10 @@ void XPlist_move_kernel(XPlist* particles,XPlist* particles_old,Environment* pla
 
 		}
 
+		localion.deltat[idx] = localion.eval_dt(plasma_in);
 
+		localion.orbflag[idx] = orbflag;
+		localion.calc_binid(plasma_in,0,idx);
 		localion.cxdt_goosed[idx] = dt[idx];
 		localion.fpdt_goosed[idx] = dt[idx];
 
@@ -777,6 +807,7 @@ void XPlist_move_kernel(XPlist* particles,XPlist* particles_old,Environment* pla
 	if(gidx < particles->nptcls[idBeam])
 	{
 		orbflag = localion.orbflag[idx];
+		//localion.shift_shared<1>(&lparticles,sdata,ireals_move,10);
 
 		if(orbflag == 1)
 		{
@@ -785,7 +816,7 @@ void XPlist_move_kernel(XPlist* particles,XPlist* particles_old,Environment* pla
 		else
 		{
 			splitting_condition(gidx,idBeam) = 1;
-		//	printf("orbit exit = %i = %i \n",localion.pexit[idx],localion.orbflag[idx]);
+			//printf("orbit exit = %i = %i \n",localion.pexit[idx],localion.orbflag[idx]);
 		}
 	}
 
@@ -807,7 +838,7 @@ void move_particles(Environment* plasma_d,XPlist* particles,XPlist* particles_ol
 	int nptcls = particles->nptcls_max;
 
 	dim3 cudaGridSize(1,particles->nspecies,1);
-	dim3 cudaBlockSize(BLOCK_SIZE,1,1);
+	dim3 cudaBlockSize(ORBIT_BLOCK_SIZE,1,1);
 
 	cudaMatrixr orbit_error(particles->nptcls_max+1,nspecies,6);
 	cudaMatrixui splitting_condition(nptcls,nspecies);
@@ -843,7 +874,7 @@ void move_particles(Environment* plasma_d,XPlist* particles,XPlist* particles_ol
 #ifdef debug
 	printf("Splitting Particle List\n");
 #endif
-	particles_done_this_step = particles->split(splitting_condition,0);
+	//particles_done_this_step = particles->split(splitting_condition,0);
 
 	if(particles_done_this_step.nptcls_max > 0)
 	{
@@ -855,7 +886,7 @@ void move_particles(Environment* plasma_d,XPlist* particles,XPlist* particles_ol
 
 	}
 
-	particles_done_this_step.XPlistFree();
+	//particles_done_this_step.XPlistFree();
 
 #ifdef debug
 	checkMemory();
@@ -885,7 +916,98 @@ void move_particles(Environment* plasma_d,XPlist* particles,XPlist* particles_ol
 
 
 
+#ifdef DO_BEAMCX
+__host__
+void charge_exchange(Environment* plasma_d,XPlist &particles,XPlist &particles_old,int istep)
+{
 
+
+	int nspecies = particles.nspecies;
+
+	dim3 cudaGridSize(1,nspecies,1);
+	dim3 cudaBlockSize(BLOCK_SIZE2,1,1);
+
+	XPlist* particles_d;
+	XPlist* particles_old_d;
+	CUDA_SAFE_CALL(cudaMalloc((void**)&particles_d,sizeof(XPlist)));
+	CUDA_SAFE_CALL(cudaMalloc((void**)&particles_old_d,sizeof(XPlist)));
+
+	CUDA_SAFE_CALL(cudaMemcpy(particles_d,&particles,sizeof(XPlist),cudaMemcpyHostToDevice));
+	CUDA_SAFE_CALL(cudaMemcpy(particles_old_d,&particles_old,sizeof(XPlist),cudaMemcpyHostToDevice));
+
+
+
+	int cudaGridSizex = (BLOCK_SIZE2+particles.nptcls_max-1)/BLOCK_SIZE2;
+
+	int nptcls_cx_h = particles.nptcls_max;
+
+	cudaGridSize.x = cudaGridSizex;
+
+	cudaBlockSize.x = BLOCK_SIZE;
+	cudaGridSize.x =  (BLOCK_SIZE+particles.nptcls_max-1)/BLOCK_SIZE;
+
+	cudaMatrixui splittinglist;
+	cudaMatrixr nutrav_weight_in;
+	cudaMatrixi ievent;
+	cudaMatrixui nsplits;
+	cudaMatrixi parent_ids;
+
+
+		splittinglist.cudaMatrix_allocate(particles.nptcls_max,particles.nspecies,1);
+		nutrav_weight_in.cudaMatrix_allocate(nptcls_cx_h,nspecies,1);
+		ievent.cudaMatrix_allocate(nptcls_cx_h,nspecies,1);
+		nsplits.cudaMatrix_allocate(nptcls_cx_h,nspecies,1);
+		parent_ids.cudaMatrix_allocate(nptcls_cx_h,nspecies,1);
+
+
+	XPlist cx_particles;
+	XPlist nutrav_parents;
+	XPlist dead_neutrals;
+
+	// Check for a charge exchange collision
+	CUDA_SAFE_CALL(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1));
+	CUDA_SAFE_KERNEL((XPlist_check_CX<<<cudaGridSize,cudaBlockSize>>>(particles,splittinglist,istep)));
+
+
+
+
+
+
+	// Figure out which particles undergo cx and spawn neutrals
+
+	CUDA_SAFE_CALL(cudaDeviceSetCacheConfig(cudaFuncCachePreferShared));
+	CUDA_SAFE_KERNEL((beamcx_kernel<<<cudaGridSize,cudaBlockSize>>>(plasma_d,particles,nutrav_weight_in,ievent,
+																					 nsplits,splittinglist)));
+
+
+
+
+
+	//append_finished_particle_table(dead_neutrals);
+
+
+
+#ifdef debug
+	printf("Finishing Charge Exchange\n");
+#endif
+
+
+	splittinglist.cudaMatrixFree();
+	nsplits.cudaMatrixFree();
+	ievent.cudaMatrixFree();
+	nutrav_weight_in.cudaMatrixFree();
+
+
+	CUDA_SAFE_CALL(cudaFree(particles_d));
+	CUDA_SAFE_CALL(cudaFree(particles_old_d));
+
+
+
+
+	return;
+
+}
+/*
   __host__
 void charge_exchange(Environment* plasma_d,XPlist &particles,XPlist &particles_old,int istep)
 {
@@ -1081,8 +1203,8 @@ void charge_exchange(Environment* plasma_d,XPlist &particles,XPlist &particles_o
 	return;
 
 }
-
-
+*/
+#endif
 
 /*
 __host__
@@ -1279,65 +1401,123 @@ void charge_exchange(Environment* plasma_d,XPlist &particles,XPlist &particles_o
 
 
 
+
 __global__
 void collide_gpu_kernel(XPlist particles_global,Environment* plasma_in,int max_steps)
 {
 	unsigned int idx = threadIdx.x;
 	unsigned int gidx = blockIdx.x*blockDim.x+idx;
 	unsigned int idBeam = blockIdx.y;
+	uint block_start;
 
 	__shared__ XPlist particles;
 
-	particles.shift_local(&particles_global);
 
 	int isteps;
-	int flag;
+	int flag = 2;
+	float zfpskip;
+	int iinc;
 
-	__syncthreads();
-
-	if(idx < particles.nptcls_max)
+	for(int i=0;i<NPTCLS_PER_COLLIDE_THREAD;i++)
 	{
-		if(particles.fpskip[idx] < 1.0)
-			isteps = 1+rint(1.0/particles.fpskip[idx]);
-		else
-			isteps = 1;
+		block_start = NPTCLS_PER_COLLIDE_THREAD*blockIdx.x*blockDim.x+i*blockDim.x;
+		particles.shift_local(&particles_global,block_start);
+		__syncthreads();
 
-		for(int i=0;i<isteps;i++)
+		if(idx < particles.nptcls_max)
 		{
-			flag = particles.collide(plasma_in,isteps);
+			particles.orbflag[idx] = (particles.check_orbit(plasma_in) == 0);
 
-			if(flag == 2)
-				break;
-			particles.update_gc(plasma_in);
-			particles.gphase();
-			particles.update_flr(plasma_in);
+			if((particles.steps_midplanecx[idx] >= particles.istep_next_fp[idx])&&(particles.orbflag[idx] == 1))
+			{
+				particles.update_gc(plasma_in);
+				particles.update_flr(plasma_in);
+				zfpskip = max(1.0,particles.fpskip[idx]);
+				iinc = rint(zfpskip);
+				if(((zfpskip-iinc))>particles.get_random()) iinc += 1;
+
+				particles.istep_next_fp[gidx]+=iinc;
+				particles.fpdt_goosed[idx] *= zfpskip;
+				particles.fp_count[idx] += 1;
+
+				if(particles.fpskip[idx] < 1.0)
+					isteps = 1+rint(1.0/particles.fpskip[idx]);
+				else
+					isteps = 1;
+
+				isteps = min(isteps,max_steps);
+				//printf("Particle %i doing %i collide steps\n",gidx,isteps);
+				for(int i=0;i<isteps;i++)
+				{
+
+					flag = particles.collide(plasma_in,isteps);
+
+					particles.update_gc(plasma_in);
+					particles.gphase();
+					particles.update_flr(plasma_in);
+
+					if(flag == 2)
+					{
+						//printf("Particle %i thermalized\n",gidx);
+						i = isteps;
+						isteps = i;
+						break;
+					}
+
+				}
+
+
+				if((particles.check_orbit(plasma_in) == 0))
+				{
+					if(flag != 2) particles.anomalous_diffusion(plasma_in);
+
+					particles.update_gc(plasma_in);
+					particles.update_flr(plasma_in);
+				}
+				else
+				{
+					particles.orbflag[idx] = 0;
+					particles.pexit[idx] = XPlistexit_limiter;
+				}
+
+			}
 		}
 
 	}
+	__syncthreads();
 
 }
 
 
 __host__
-void collide_gpu(void)
+void collide_gpu(Environment* plasma_in,XPlist* particles,int max_steps)
 {
+	dim3 cudaBlockSize(BLOCK_SIZE,1,1);
+	dim3 cudaGridSize(1,particles->nspecies,1);
+	int nptclsperblock = NPTCLS_PER_COLLIDE_THREAD*cudaBlockSize.x;
+
+	cudaGridSize.x = (particles->nptcls_max + nptclsperblock -1)/nptclsperblock;
+
+	CUDA_SAFE_KERNEL((collide_gpu_kernel<<<cudaGridSize,cudaBlockSize>>>(*particles,plasma_in,max_steps)));
 
 }
 
 
 __global__
 void step_finish_kernel(Environment* plasma_in,XPlist* particles_global,XPlist* particles_global_old,
-										cudaMatrixui splitting_condition)
+										cudaMatrixui splitting_condition,cudaMatrixf px,cudaMatrixf py,int istep)
 {
 	unsigned int idx = threadIdx.x;
 	unsigned int gidx = idx+blockIdx.x*blockDim.x;
 	unsigned int idBeam = blockIdx.y;
 	unsigned int block_start = blockIdx.x*blockDim.x;
 	unsigned int orbflag = 0;
+	bool particle_exists = 0;
 
 	__shared__ XPlist particles;
-	realkind velocity;
-	realkind transp_index;
+	realkind thermal_velocity;
+	int transp_index;
+	realkind3 velocities;
 
 if(block_start < particles_global->nptcls_max)
 {
@@ -1346,16 +1526,15 @@ if(block_start < particles_global->nptcls_max)
 
 	if(idx < particles.nptcls_max)
 	{
+		particle_exists = 1;
+		orbflag = particles.orbflag[idx];
 		if(particles.check_orbit(plasma_in) == 0)
 		{
-			orbflag = particles.orbflag[idx];
+			velocities = particles.eval_plasma_frame_velocity(plasma_in);
+			transp_index = rint(plasma_in -> transp_zone(particles.px[1][idx],particles.py[1][idx]));
+			thermal_velocity = plasma_in -> thermal_velocity(transp_index,idBeam);
 
-
-			velocity = pow(particles.vpara[0][idx],2)+pow(particles.vperp[0][idx],2);
-			velocity = sqrt(velocity);
-			transp_index = plasma_in->transp_zone(particles.px[0][idx],particles.py[0][idx]);
-
-			if(velocity <= plasma_in ->thermal_velocity(transp_index,idBeam))
+			if((particles.pexit[idx] == XPlistexit_thermalized))
 			{
 				particles.orbflag[idx] = 0;
 				orbflag = 0;
@@ -1373,10 +1552,24 @@ if(block_start < particles_global->nptcls_max)
 
 
 
+		if(orbflag == 1)
+		{
+			splitting_condition(gidx,idBeam) = 0;
+		}
+		else
+		{
+#ifdef Animate_orbits
 
+		if((particles.original_idx[idx] % SPHERE_SPACING) == 0)
+		{
+				px(particles.original_idx[idx],idBeam,istep) = -100.0;
+				py(particles.original_idx[idx],idBeam,istep) = -100.0;
+		}
+#endif
+			splitting_condition(gidx,idBeam) = 1;
+			printf("orbit exit(%i) = %i = %i \n",gidx,particles.pexit[idx],particles.orbflag[idx]);
+		}
 
-
-		splitting_condition(gidx,idBeam) = (orbflag!=1);
 
 	}
 
@@ -1400,6 +1593,9 @@ if(block_start < particles_global->nptcls_max)
 
 
 	}
+
+	if(particle_exists)
+		particles.calc_binid(plasma_in,0,idx);
 
 
 }
@@ -1425,7 +1621,8 @@ void step_finish(Environment* plasma_d,XPlist &particles,XPlist &particles_old,i
 	CUDA_SAFE_CALL(cudaMemcpy(particles_d,&particles,sizeof(XPlist),cudaMemcpyHostToDevice));
 	CUDA_SAFE_CALL(cudaMemcpy(particles_old_d,&particles_old,sizeof(XPlist),cudaMemcpyHostToDevice));
 	CUDA_SAFE_CALL(cudaDeviceSetCacheConfig(cudaFuncCachePreferL1));
-	CUDA_SAFE_KERNEL((step_finish_kernel<<<cudaGridSize,cudaBlockSize>>>(plasma_d,particles_d,particles_old_d,splitting_condition)));
+	CUDA_SAFE_KERNEL((step_finish_kernel<<<cudaGridSize,cudaBlockSize>>>
+			(plasma_d,particles_d,particles_old_d,splitting_condition,xposition_matrix,yposition_matrix,istep)));
 
 	printf("Splitting Particle List\n");
 	particles_done_this_step = particles.split(splitting_condition,1);
@@ -1595,6 +1792,14 @@ extern "C" void orbit_gpu_(int* NBNDEX,int* NBSCAY,int* NBIENAY,double* PINJAY,
 	int nptcls_left0;
 	int istep = 0;
 
+	// Timers
+	uint move_timer = 0;
+	float move_time = 0;
+	uint step_finish_timer = 0;
+	float step_finish_time = 0;
+	uint collide_timer = 0;
+	float collide_time = 0;
+
 	checkMemory();
 
 
@@ -1617,15 +1822,7 @@ extern "C" void orbit_gpu_(int* NBNDEX,int* NBSCAY,int* NBIENAY,double* PINJAY,
 	particles.setup(plasma_d,double_data_in_h,int_data_in_h,minb,mibs);
 
 	//particles.check_sort();
-#ifdef Animate_orbits
-	cudaMatrixf xposition(minb/SPHERE_SPACING,mibs,MAX_STEPS+10);
-	cudaMatrixf yposition(minb/SPHERE_SPACING,mibs,MAX_STEPS+10);
-	cudaMatrixi nptcls_at_step(MAX_STEPS+10);
 
-	xposition_matrix = xposition;
-	yposition_matrix = yposition;
-	nptcls_at_step_matrix = nptcls_at_step;
-#endif
 
 	particles.sort(plasma_h.gridspacing,plasma_h.griddims);
 
@@ -1634,19 +1831,32 @@ extern "C" void orbit_gpu_(int* NBNDEX,int* NBSCAY,int* NBIENAY,double* PINJAY,
 	nptcls_left = particles.nptcls_max;
 	nptcls_left0 = particles.nptcls_max;
 
+#ifdef Animate_orbits
+	cudaMatrixf xposition(nptcls_left/SPHERE_SPACING,mibs,MAX_STEPS+10);
+	cudaMatrixf yposition(nptcls_left/SPHERE_SPACING,mibs,MAX_STEPS+10);
+	cudaMatrixi nptcls_at_step(MAX_STEPS+10);
+
+	xposition_matrix = xposition;
+	yposition_matrix = yposition;
+	nptcls_at_step_matrix = nptcls_at_step;
+#endif
+
 	update_original_idx_counter(nptcls_left0);
 
 	XPlist particles_old(nptcls_left,mibs,XPlistlocation_device);
 	checkMemory();
 
 	 // Top of the time loop
+	printf("\n---------------------------------------\nStarting GPU Run...\n");
 
 	istep = 0;
-	while(nptcls_left > 10)
+	while(nptcls_left > 100)
 	{
 #ifdef debug
 		printf("\n---------------------------------------\nStarting Step %i...\n",istep);
 		printf("nptcls_left = %i at step %i\n",nptcls_left,istep);
+#else
+		printf(" %i",istep);
 #endif
 		// Initialize the counter for the table of finished particle lists
 		finished_particle_list_counter = 0;
@@ -1656,18 +1866,24 @@ extern "C" void orbit_gpu_(int* NBNDEX,int* NBSCAY,int* NBIENAY,double* PINJAY,
 		//checkMemory();
 		XPlistCopy(particles_old,particles,nptcls_left,mibs,cudaMemcpyDeviceToDevice);
 		 // Move the particles
+		start_timer_(&move_timer);
 		move_particles(plasma_d,&particles,&particles_old,&particles_done,istep);
-
+		stop_timer_(&move_time,&move_timer);
 
 #ifdef debug
 		printf("nptcls_left = %i at step %i\n",nptcls_left,istep);
 #endif
 
+#ifdef DO_BEAMCX
 		 // BeamCX
-	//	checkMemory();
 		charge_exchange(plasma_d,particles,particles_old,istep);
+#endif
 
 		 // Fokker Plank Collisions
+		start_timer_(&collide_timer);
+		collide_gpu(plasma_d,&particles,100);
+		stop_timer_(&collide_time,&collide_timer);
+
 
 		 // Anomalous diffusion
 
@@ -1675,8 +1891,9 @@ extern "C" void orbit_gpu_(int* NBNDEX,int* NBSCAY,int* NBIENAY,double* PINJAY,
 
 		 // Cleanup time step
 	//	checkMemory();
+		start_timer_(&step_finish_timer);
 		step_finish(plasma_d,particles,particles_old,istep);
-
+		stop_timer_(&step_finish_time,&step_finish_timer);
 
 		nptcls_left = particles.nptcls_max;
 
@@ -1702,7 +1919,14 @@ extern "C" void orbit_gpu_(int* NBNDEX,int* NBSCAY,int* NBIENAY,double* PINJAY,
 
 	}
 
+	printf("\n---------------------------------------\nFinished GPU Run\n");
+
+
 	checkMemory();
+
+	printf("GPU Particle Move took %f ms for %i particles and %i steps\n",move_time,nptcls_left0,istep);
+	printf("GPU Collide took %f ms for %i particles and %i steps\n",collide_time,nptcls_left0,istep);
+	printf("GPU step finish took %f ms for %i particles and %i steps\n",step_finish_time,nptcls_left0,istep);
 
 
 
@@ -1726,7 +1950,7 @@ extern "C" void orbit_gpu_(int* NBNDEX,int* NBSCAY,int* NBIENAY,double* PINJAY,
 	gridorigins.y = plasma_h.Zmin;
 
 	orbit_animate(xposition,yposition,nptcls_at_step,
-						limiter_map_out,gridspacing_out,gridorigins,istep+1,minb,SPHERE_SPACING);
+						limiter_map_out,gridspacing_out,gridorigins,istep+1,nptcls_left0,SPHERE_SPACING);
 #endif
 	cudaDeviceSynchronize();
 	particles.XPlistFree();
@@ -1750,9 +1974,9 @@ extern "C" void nubeam_gpu_cleanup_(int* idum)
 extern "C" void nubeam_gpu_init_(int* idum)
 {
 	printf("Initializing GPU stuff\n");
-	CUDA_SAFE_CALL(cudaDeviceReset());
 	CUDA_SAFE_CALL(cudaSetDevice(1));
-	CUDA_SAFE_CALL(cudaSetDeviceFlags(cudaDeviceScheduleSpin));
+	CUDA_SAFE_CALL(cudaDeviceReset());
+	//CUDA_SAFE_CALL(cudaSetDeviceFlags(cudaDeviceScheduleSpin));
 }
 
 

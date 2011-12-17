@@ -30,5 +30,5 @@ make exec -B
 cd ..
 make install -B
 cd nubeam_comp_exec
-(csh ./d3d_test.csh -nptcls 4000) > gpu_debug.msg 
+#(csh ./d3d_test.csh -nptcls 20000) > gpu_debug.msg 
 #(cuda-memcheck csh ./d3d_test.csh -nptcls 4000) > gpu_debug.msg 

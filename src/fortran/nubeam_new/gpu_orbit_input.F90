@@ -219,6 +219,8 @@
 	  gpudparams(14) = orbrzv_dz
 	  gpudparams(15) = xbmbnd
 
+	  gpudparams(16) = CXSPLT
+
 	  spacingparams(3) = hxi(1)
 	  spacingparams(4) = hxii(1)
 	  spacingparams(1) = hth(1)

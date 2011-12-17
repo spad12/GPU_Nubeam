@@ -190,6 +190,7 @@ public:
 	__device__ void copyfromglobal(XPlist listin);
 	// Copy a particle in shared memory to global
 	__device__ void copyfromshared(XPlist listin);
+	__device__ void calc_binid(Environment* plasma_in,int icall,int idx);
 	// Check to see if a particle is still orbiting
 	__device__ int check_orbit(Environment* plasma,int icall=0);
 	// Check to see if the particle is still inside the plasma 1 for inside, 0 for outside
@@ -204,6 +205,9 @@ public:
 
 	// Shift the pointers so that the pointer starts with the first particle in that block
 	__device__ void shift_local(XPlist* global_particle,unsigned int block_start);
+
+	template<int direction>
+	__device__ void shift_shared(XPlist* local_particles,realkind* sdata,int* ireals,int nreals);
 
 	// Check to see if a particle is going to go through charge exchange
 
@@ -863,6 +867,47 @@ void XPlist::shared_parent(XPlist* parent_global,int blockstart)
 
 }
 
+template<int direction>
+__device__
+void XPlist::shift_shared(XPlist* local_particles,realkind* sdata,int* ireals,int nreals)
+{
+	uint idx = threadIdx.x;
+	uint thid = idx;
+	int offset = blockDim.x;
+	if(direction == 0)
+	{
+		while(thid < nreals)
+		{
+			*get_realkind_pointer(ireals[thid]) = sdata+thid*offset;
+			thid+= blockDim.x;
+		}
+
+		__syncthreads();
+
+		if(idx < local_particles->nptcls_max)
+		{
+			for(int i=0;i<nreals;i++)
+			{
+				int ireal = ireals[i];
+				(*get_realkind_pointer(ireal))[idx] = (*local_particles->get_realkind_pointer(ireal))[idx];
+			}
+		}
+	}
+	else
+	{
+		if(idx < local_particles->nptcls_max)
+		{
+			for(int i=0;i<nreals;i++)
+			{
+				int ireal = ireals[i];
+				(*local_particles->get_realkind_pointer(ireal))[idx] = (*get_realkind_pointer(ireal))[idx];
+			}
+		}
+	}
+
+
+}
+
 __device__
 void XPlist::copyfromparent(XPlist* parent)
 {
@@ -1246,9 +1291,15 @@ XPlist XPlist::split(cudaMatrixui split_condition_d,
 
 	cudaGridSize.x = nblocks;
 
+	if(forceflag == 2)
+	{
+		// Just set the max number of particles to the number of orbiting particles
+		nptcls_max = nptcls_0[0];
 
-
-	if((nptcls_1[0] >= BLOCK_SIZE/4)||(forceflag!=0))
+		particles1.XPlist_init(1,nspecies,XPlistlocation_device);
+		particles1.nptcls_max = 0;
+	}
+	else if((nptcls_1[0] >= BLOCK_SIZE/4)||(forceflag!=0))
 	{
 		printf("nptcls_0 = %i, nptcls_1 = %i \n",nptcls_0[0],nptcls_1[0]);
 		if((nptcls_1[0] > 0))
@@ -1480,7 +1531,8 @@ void XPlist::append(XPlist listin)
 }
 
 
-__host__ realkind box_muller(realkind width, realkind offset)
+__host__
+realkind box_muller(realkind width, realkind offset)
 {
 	realkind result;
 	realkind pi = 3.14159265358979323846264338327950288419716939937510f;
@@ -1492,6 +1544,12 @@ __host__ realkind box_muller(realkind width, realkind offset)
 	//printf(" result = %f \n",result);
 
 	return result;
+}
+
+__device__
+realkind randGauss(curandState* state,realkind mean,realkind std)
+{
+	return curand_normal(state)*2.0*std+mean;
 }
 
 
@@ -1509,7 +1567,7 @@ void curand_init_kernel(curandState* random_states, size_t pitch,int random_stat
 	{
 		my_state = (curandState*)((char*)(random_states)+pitch*idBeam)+gidx;
 
-		curand_init(RANDOM_SEED,element_id,idx,my_state);
+		curand_init(RANDOM_SEED,element_id,0,my_state);
 	}
 
 
@@ -1682,6 +1740,45 @@ void sort_remaining(XPlist particles_global, XPlist particles_global_temp, unsig
 
 }
 
+
+int compare(const void* a, const void* b)
+{
+	return (((int2*)a)->x < ((int2*)b)->x);
+}
+
+void stupid_sort(int* keys_d, int* values_d, int nelements)
+{
+
+	int* keys_h = (int*)malloc(nelements*sizeof(int));
+	int* values_h = (int*)malloc(nelements*sizeof(int));
+
+	int2* dict = (int2*)malloc(nelements*sizeof(int2));
+
+	CUDA_SAFE_CALL(cudaMemcpy(keys_h,keys_d,nelements*sizeof(int),cudaMemcpyDeviceToHost));
+	CUDA_SAFE_CALL(cudaMemcpy(values_h,values_d,nelements*sizeof(int),cudaMemcpyDeviceToHost));
+
+	for(int i=0;i<nelements;i++)
+	{
+		dict[i].x = keys_h[i];
+		dict[i].y = values_h[i];
+	}
+
+	qsort(dict,nelements,sizeof(int2),compare);
+
+	for(int i=0;i<nelements;i++)
+	{
+		keys_h[i] = dict[i].x;
+		values_h[i] = dict[i].y;
+	}
+
+	CUDA_SAFE_CALL(cudaMemcpy(keys_d,keys_h,nelements*sizeof(int),cudaMemcpyHostToDevice));
+	CUDA_SAFE_CALL(cudaMemcpy(values_d,values_h,nelements*sizeof(int),cudaMemcpyHostToDevice));
+
+	free(keys_h);
+	free(values_h);
+	free(dict);
+}
+
 __host__
 void XPlist::sort(realkind2 Pgridspacing, int2 Pgrid_i_dims)
 {
@@ -1729,7 +1826,7 @@ void XPlist::sort(realkind2 Pgridspacing, int2 Pgrid_i_dims)
 	CUDA_SAFE_KERNEL((write_xpindex_array<<<cudaGridSize,cudaBlockSize>>>(XP_index_array,ipitch,nptcls_max)));
 	cudaDeviceSynchronize();
 
-
+#ifndef USE_STUPID_SORT
 	d_keys = (unsigned int*)((char*)cellindex_temp);
 	d_values = (unsigned int*)((char*)XP_index_array);
 
@@ -1751,7 +1848,26 @@ void XPlist::sort(realkind2 Pgridspacing, int2 Pgrid_i_dims)
 			//CUDA_SAFE_KERNEL((radixsort.sort(d_keys,d_values,nptcls_h[i],32)));
 		}
 	}
+#else
+	d_keys = (uint*)((char*)cellindex_temp);
+	d_values = (uint*)((char*)XP_index_array);
 
+
+	// Create the RadixSort object
+	//nvRadixSort::RadixSort radixsort(nptcls_max+1);
+	for(int i=0;i<nspecies;i++)
+	{
+		printf("nptcls_h[%i] = %i\n",i,nptcls_h[i]);
+
+
+		// Sort the key / value pairs
+		if(nptcls_h[i] > 0)
+		{
+			stupid_sort((int*)d_keys+i*ipitch/sizeof(int),(int*)d_values+i*ipitch/sizeof(int),nptcls_h[i]);
+			//CUDA_SAFE_KERNEL((radixsort.sort(d_keys,d_values,nptcls_h[i],32)));
+		}
+	}
+#endif
 
 	XPlist temp_list(nptcls_max,nspecies,XPlistlocation_device);
 
@@ -1933,6 +2049,32 @@ void populate_blockinfo(cudaMatrixi3 blockinfo,cudaMatrixi2 cellinfo,
 */
 
 __device__
+void XPlist::calc_binid(Environment* plasma_in,int icall,int idx)
+{
+	int nr = plasma_in -> griddims.x;
+	int nz = plasma_in -> griddims.y;
+	int ix;
+	int iy;
+
+	nx[icall][idx] = rint((px[icall][idx]-plasma_in->Rmin)/plasma_in->gridspacing.x);
+	ny[icall][idx] = rint((py[icall][idx]-plasma_in->Zmin)/plasma_in->gridspacing.y);
+
+	ix = max(0,min(nr-1,nx[icall][idx]));
+	iy = max(0,min(nz-1,ny[icall][idx]));
+	if(orbflag[idx] == 1)
+	{
+		cellindex[icall][idx] = zmap(ix,iy);
+		//cellindex[icall][idx] = eval_NGC(plasma_in,idx,icall);
+	}
+	else
+	{
+		cellindex[icall][idx] = zmap(nr,nz);
+	}
+
+
+}
+
+__device__
 int XPlist::check_orbit(Environment* plasma_in,int icall)
 {
 	unsigned int idx = threadIdx.x;
@@ -1948,13 +2090,14 @@ int XPlist::check_orbit(Environment* plasma_in,int icall)
 
 	// Check GC;
 	Xi = plasma_in -> Xi_map(px[0][idx],py[0][idx]);
-	transp_zone = (int)floor(plasma_in -> transp_zone(px[0][idx],py[0][idx]));
+	transp_zone = (int)rint(plasma_in -> transp_zone(px[0][idx],py[0][idx]));
 	limiter_distance = plasma_in -> limiter_map(px[0][idx],py[0][idx]);
 
 	ilim = 0;
 	if(Xi > plasma_in -> xi_max){ilim+=1;}
 
 	if(transp_zone < 0){ilim += 2;}
+
 
 	if(-1.0f*limiter_distance <= rlarmor[idx]){ilim += 3;}
 
@@ -1963,7 +2106,7 @@ int XPlist::check_orbit(Environment* plasma_in,int icall)
 	if(py[0][idx] >= (plasma_in -> Zmax))
 	{	ilim += 1;}
 
-	if((px[0][idx] < (plasma_in->Rmin))||(py[0][idx] < (plasma_in->Zmin)))
+	if((px[0][idx] <= (plasma_in->Rmin))||(py[0][idx] <= (plasma_in->Zmin)))
 	{	ilim += 1;}
 
 /*
@@ -2108,22 +2251,26 @@ realkind XPlist::eval_dt(Environment* plasma_in)
 {
 	unsigned int idx = threadIdx.x;
 	realkind result;
-	//realkind Xi = plasma_in->Xi_map(px[0][idx],py[0][idx]);
-	realkind time_left = max((plasma_in->delt - time_done[idx]),orbit_dt_min*2.0);
+	realkind Xi = plasma_in->Xi_map(px[0][idx],py[0][idx]);
+	realkind time_left = max((plasma_in->delt - time_done[idx]),(plasma_in->delt)/10.0 );
 	realkind steps_left = MAX_STEPS-plasma_in->istep+1;
+	realkind avg_dt = max(deltat[idx],time_done[idx]/(plasma_in->istep+1));
 
 	realkind accelfactor;
 
 
 
 
-	accelfactor = abs((((realkind)MAX_STEPS)/steps_left)*(time_left/(plasma_in->delt)));
-	accelfactor = min(accelfactor,5.0);
+	accelfactor = abs((time_left/(avg_dt))/steps_left);
+	accelfactor = min(accelfactor,2.0);
 
 	//result = dl_limit/dldt;
 
 	result = deltat[idx];
-/*
+
+	steps_left = MAX_STEPS;
+	result = min(result,5.0*plasma_in->delt /steps_left);
+
 	if (Xi > 0.9)
 	{
 		if (Xi >= 1)
@@ -2135,12 +2282,11 @@ realkind XPlist::eval_dt(Environment* plasma_in)
 			result = result*(1-0.75*(10.0*(Xi-0.9)));
 		}
 	}
-*/
+
 	//result = max(result*accelfactor,result);
 
 
-	result = min(result,1.0e-5);
-	result = max(result,orbit_dt_min);
+	//result = max(result,2.0f*orbit_dt_min);
 
 	return result;
 }
@@ -2308,11 +2454,11 @@ void XPlist::update_gc(Environment* plasma_in)
 
 	bmod = eval_Bmod(plasma_in->Psispline,plasma_in->gspline);
 
-	mu[idx] = 0.5*mass[idx]*ZMP*vperp[0][idx]*vperp[0][idx]/(bmod);
+	mu[idx] = 0.5*mass[idx]*ZMP*pow(vperp[0][idx],2)/(bmod);
 
 	energy[idx] = 0.5*ZMP*mass[idx]*(pow(vpara[0][idx],2))+mu[idx]*(bmod)+potential[0][idx];
 
-	rlarmor[idx] = vperp[0][idx]*mass[idx]/(9.578e7*charge[idx]*bmod);
+	rlarmor[idx] = vperp[0][idx]*mass[idx]/(9.578e7*charge[idx]*bmod*1.0e-4);
 
 	momentum[idx] = mass[idx]*ZMP*vpara[0][idx]*g/(bmod)-bphi_sign*ZEL*charge[idx]*Psi/ZC;
 
@@ -2333,36 +2479,68 @@ void XPlist::update_flr(Environment* plasma)
 	realkind PsiFLR;
 	realkind bmodFLR;
 
-	realkind3 larmor_vector = eval_larmor_vector(plasma->Bfieldr(px[0][idx],py[0][idx]),
-													   plasma->Bfieldz(px[0][idx],py[0][idx]),
-													   plasma->Bfieldphi(px[0][idx],py[0][idx]));
+	int iflr = 1; // 0 means use gc instead of flr
+
+	realkind zdrx,zdrth,ztop;
+
+	if(iflr == 1)
+	{
+	B_vector.x = plasma->Bfieldr(px[0][idx],py[0][idx])*ZT2G;
+	B_vector.y = plasma->Bfieldz(px[0][idx],py[0][idx])*ZT2G;
+	B_vector.z = plasma->Bfieldphi(px[0][idx],py[0][idx])*ZT2G;
+
+	zdrx = rlarmor[idx]*cos(phase_angle[idx]);
+	zdrth = rlarmor[idx]*sin(phase_angle[idx])*plasma->phi_ccw*B_vector.z;
+
+	if(py[0][idx] >= 0.0)
+		ztop = 1.0;
+	else
+		ztop = -1.0;
+
+	px[1][idx] = px[0][idx];
+	px[1][idx] += zdrx*B_vector.y;
+	px[1][idx] += zdrth*ztop*B_vector.x;
+
+	py[1][idx] = py[0][idx];
+	py[1][idx] += zdrth*B_vector.y;
+	py[1][idx] -= zdrx*ztop*B_vector.x;
+
+
+
+
+	//realkind3 larmor_vector = eval_larmor_vector(plasma->Bfieldr(px[0][idx],py[0][idx])*ZT2G,
+	//												   plasma->Bfieldz(px[0][idx],py[0][idx])*ZT2G,
+	//												   plasma->Bfieldphi(px[0][idx],py[0][idx])*ZT2G);
 
 	// Set the finite larmor radius position
-	px[1][idx] = sqrt(pow(px[0][idx]+larmor_vector.x,2)+larmor_vector.z*larmor_vector.z);
-	py[1][idx] = py[0][idx]+larmor_vector.y;
+	//px[1][idx] = sqrt(pow(px[0][idx]+larmor_vector.x,2)+larmor_vector.z*larmor_vector.z);
+	//py[1][idx] = py[0][idx]+larmor_vector.y;
 
 	potential[1][idx] = ZEL*charge[idx]*plasma->Phispline.BCspline_eval<XPgridderiv_f>(px[1][idx],py[1][idx]);
 
 
 
-	B_vector.x = plasma->Bfieldr(px[1][idx],py[1][idx]);
-	B_vector.y = plasma->Bfieldz(px[1][idx],py[1][idx]);
-	B_vector.z = plasma->Bfieldphi(px[1][idx],py[1][idx]);
-	bmodFLR = pow(B_vector.x,2)+pow(B_vector.y,2)+pow(B_vector.z,2);
-	PsiGC = plasma->Psispline.BCspline_eval<XPgridderiv_f>(px[0][idx],py[0][idx]);
-	PsiFLR = plasma->Psispline.BCspline_eval<XPgridderiv_f>(px[1][idx],py[1][idx]);
+	//B_vector.x = plasma->Bfieldr(px[1][idx],py[1][idx])*ZT2G;
+	//B_vector.y = plasma->Bfieldz(px[1][idx],py[1][idx])*ZT2G;
+	//B_vector.z = plasma->Bfieldphi(px[1][idx],py[1][idx])*ZT2G;
+	//bmodFLR = pow(B_vector.x,2)+pow(B_vector.y,2)+pow(B_vector.z,2);
+	//PsiGC = plasma->Psispline.BCspline_eval<XPgridderiv_f>(px[0][idx],py[0][idx]);
+	//PsiFLR = plasma->Psispline.BCspline_eval<XPgridderiv_f>(px[1][idx],py[1][idx]);
 
-	v_vector = eval_velocity_vector(B_vector.x,B_vector.y,B_vector.z,0);
+	//v_vector = eval_velocity_vector(B_vector.x,B_vector.y,B_vector.z,0);
 
 
 
 	// Conserve angular momentum
-	v_vector.z = px[0][idx]/px[1][idx]*v_vector.z+ZEL*charge[idx]/(ZMP*mass[idx]*px[1][idx])*(PsiFLR-PsiGC);
+	//v_vector.z = px[0][idx]/px[1][idx]*v_vector.z+ZEL*charge[idx]/(ZMP*mass[idx]*px[1][idx])*(PsiFLR-PsiGC);
 
-	v_mag = pow(v_vector.x,2)+pow(v_vector.y,2)+pow(v_vector.z,2);
+	v_mag = pow(vpara[0][idx],2)+pow(vperp[0][idx],2);
 	// Conserve Energy
-	velocity = sqrt(v_mag+(potential[0][idx]-potential[1][idx])/V2TOEV);
-
+	if(potential[1][idx] != potential[0][idx])
+		velocity = sqrt(max((v_mag+(potential[0][idx]-potential[1][idx])/V2TOEV),1.0e12f));
+	else
+		velocity = v_mag;
+/*
 	v_vector.x *= velocity/v_mag;
 	v_vector.y *= velocity/v_mag;
 	v_vector.z *= velocity/v_mag;
@@ -2370,10 +2548,23 @@ void XPlist::update_flr(Environment* plasma)
 	B_vector.x /= bmodFLR;
 	B_vector.y /= bmodFLR;
 	B_vector.z /= bmodFLR;
+*/
+	//vpara[1][idx] = v_mag*(v_vector.x*B_vector.x+v_vector.y*B_vector.y+v_vector.z*B_vector.z);
+	vpara[1][idx] = px[0][idx]*vpara[0][idx]/px[1][idx];
 
-	vpara[1][idx] = v_mag*(v_vector.x*B_vector.x+v_vector.y*B_vector.y+v_vector.z*B_vector.z);
+	vpara[1][idx] = max(-0.99999f*velocity,min(0.99999f*velocity,vpara[1][idx]));
 
-	vperp[1][idx] = sqrt(pow(velocity,2)-pow(vpara[1][idx],2));
+
+	vperp[1][idx] = sqrt(max((pow(velocity,2)-pow(vpara[1][idx],2)),0.0f));
+	pitch_angle[1][idx] = vpara[1][idx]/velocity;
+	}
+	else
+	{
+		vpara[1][idx] = vpara[0][idx];
+		vperp[1][idx] = vperp[0][idx];
+		pitch_angle[1][idx] = pitch_angle[0][idx];
+		potential[1][idx] = potential[0][idx];
+	}
 
 	return;
 
@@ -2851,9 +3042,9 @@ realkind3 XPlist::eval_plasma_frame_velocity(Environment* plasma_in)
 
 	realkind3 result;// velocity,vparallel, pitch_angle
 
-	realkind Bfieldr = plasma_in -> Bfieldr(px[0][idx],py[0][idx]);
-	realkind Bfieldz = plasma_in -> Bfieldz(px[0][idx],py[0][idx]);
-	realkind Bfieldphi = plasma_in -> Bfieldphi(px[0][idx],py[0][idx]);
+	realkind Bfieldr = plasma_in -> Bfieldr(px[0][idx],py[0][idx])*ZT2G;
+	realkind Bfieldz = plasma_in -> Bfieldz(px[0][idx],py[0][idx])*ZT2G;
+	realkind Bfieldphi = plasma_in -> Bfieldphi(px[1][idx],py[1][idx])*ZT2G;
 
 	realkind velocity_temp = sqrt(pow(vperp[1][idx],2)+pow(vpara[1][idx],2));
 
@@ -2861,17 +3052,17 @@ realkind3 XPlist::eval_plasma_frame_velocity(Environment* plasma_in)
 
 	realkind plasma_rotation = plasma_in -> rotation(px[1][idx],py[1][idx]);
 
-	realkind plasma_speed = plasma_rotation*px[1][idx]*Bmod;
+	realkind plasma_speed = plasma_rotation*px[1][idx]*Bfieldphi;
 
 	realkind zeps = plasma_speed/velocity_temp;
 
 	result.y = vpara[1][idx] - plasma_speed;
 
-	result.x = velocity_temp*sqrt(max(0.0f,1+zeps*(zeps-2*pitch_angle[1][idx])));
+	result.x = velocity_temp*sqrt(max(0.0f,1.0+zeps*(zeps-2.0*pitch_angle[1][idx])));
 
-	result.y = max(-0.9999999f*result.x,min(0.9999999f*result.x,result.y));
+	result.y = max(-0.9999f*result.x,min(0.9999f*result.x,result.y));
 
-	if(result.x > 0)
+	if(result.x > 1.0e-9f)
 		result.z = result.y/result.x;
 	else
 		result.z = 0;
@@ -2898,6 +3089,7 @@ int XPlist::collide(Environment* plasma_in,int isteps)
 
 	int beam_zone_flr = rint(plasma_in -> beam_zone(px[1][idx],py[1][idx]));
 	int beam_zone_gc = rint(plasma_in -> beam_zone(px[0][idx],py[0][idx]));
+	int nbflag = 0;
 
 	realkind coeffC;
 	realkind coeffD;
@@ -2970,12 +3162,15 @@ int XPlist::collide(Environment* plasma_in,int isteps)
 	coeffD = plasma_in -> FPcoeff_arrayD(transp_zone_flr,idBeam,energy_index);
 	coeffE = plasma_in -> FPcoeff_arrayE(transp_zone_flr,idBeam,energy_index);
 
-	Eforce = 9.58E11*charge[idx]*(plasma_in -> loop_voltage(transp_zone_flr))*
+	Eforce = 9.58E11*(charge[idx])*(plasma_in -> loop_voltage(transp_zone_flr))*
 				  (plasma_in -> current_shielding(transp_zone_flr))*
-				  (plasma_in -> Bfieldphi(px[1][idx],py[1][idx]))/
-				  (2*pi*px[1][idx]*mass[idx]);
+				  (plasma_in -> Bfieldphi(px[1][idx],py[1][idx])*ZT2G)/
+				  (2*pi*px[1][idx]*(mass[idx]));
 
-	velocities.x = sqrt(velocities.x*velocities.x+pow(Eforce*fpdt_goosed[idx]/isteps,2)+2*Eforce*fpdt_goosed[idx]/isteps*velocities.y);
+	velocities.x = velocities.x*velocities.x;
+	velocities.x += pow(Eforce*fpdt_goosed[idx]/isteps,2);
+	velocities.x += 2*Eforce*fpdt_goosed[idx]/isteps*velocities.y;
+	velocities.x = sqrt(max(velocities.x,0.0f));
 
 	velocities.y += Eforce*fpdt_goosed[idx]/isteps;
 
@@ -2983,17 +3178,17 @@ int XPlist::collide(Environment* plasma_in,int isteps)
 
 	velocities.z = velocities.y/velocities.x;
 
-	vppov = sqrt(1-velocities.z*velocities.z);
+	vppov = sqrt(max(1.0-velocities.z*velocities.z,0.0f));
 
-	epain = 1.0f/(velocities.x*velocities.x*mass[idx]);
+	epain = 1.0f/(velocities.x*velocities.x*(mass[idx]));
 
 	// Electron Drag
 	electron_drag = coeffC*fpdt_goosed[idx]/isteps*velocities.x*
-							 (1-1.915E12f*epain*electron_temperature);
+							 (1.0-1.915E12f*epain*electron_temperature);
 
 	// Ion Drag
-	ion_drag = coeffD*fpdt_goosed[idx]/isteps*epain*mass[idx]*
-					  (1+9.577E11f*epain*ion_temperature);
+	ion_drag = coeffD*fpdt_goosed[idx]/isteps*epain*(mass[idx])*
+					  (1.0+9.577E11f*epain*ion_temperature);
 
 	// Guard against too much drag at thermalization time
 
@@ -3008,14 +3203,16 @@ int XPlist::collide(Environment* plasma_in,int isteps)
 	velocities.x -= drag_sum;
 
 	// Energy Diffusion
-	if(velocities.x > thermal_velocity)
+	if(abs(velocities.x) > thermal_velocity)
 	{
-		std_velocity = sqrt(fpdt_goosed[idx]/isteps*(coeffC*electron_temperature*1.915E12f/mass[idx]+
-									  ion_temperature*1.915E12f/(velocities.x*velocities.x*velocities.x*mass[idx])*coeffD));
+		std_velocity = coeffC*electron_temperature*1.915E12f/(mass[idx]);
+		std_velocity += ion_temperature*1.915E12f/(velocities.x*velocities.x*velocities.x*(mass[idx]))*coeffD;
+		std_velocity *= fpdt_goosed[idx]/isteps;
+		std_velocity = sqrt(max(std_velocity,0.0f));
 		energy_old = velocities.x*velocities.x;
 		velocity_old = velocities.x;
 
-		velocities.x = max(0.5f*thermal_velocity,curand_log_normal(&random_state[idx],velocities.x,std_velocity));
+		velocities.x = max(0.5f*thermal_velocity,(randGauss(&random_state[idx],velocities.x,std_velocity)));
 
 		velocity_change = velocity_old - velocities.x;
 		energy_change = energy_old - velocities.x*velocities.x;
@@ -3032,22 +3229,22 @@ int XPlist::collide(Environment* plasma_in,int isteps)
 
 	dves = diffusion_factor*velocity_change+electron_drag;
 
-	dvis = (1-diffusion_factor)*energy_change+ion_drag;
+	dvis = (1.0f-diffusion_factor)*energy_change+ion_drag;
 
 	dVpara_toroidal -= velocities.z*(dves+dvis);
 	dVpara_same -= vppov*(dves+dvis);
 
-	if(velocities.x > thermal_velocity)
+	if(abs(velocities.x) > thermal_velocity)
 	{
-		ceff = 2*coeffE/pow(velocities.x,3)*fpdt_goosed[idx]/isteps;
-		swsq = (1-velocities.z*velocities.z)*ceff;
+		ceff = 2.0*coeffE/pow(velocities.x,3)*fpdt_goosed[idx]/isteps;
+		swsq = (1.0f-velocities.z*velocities.z)*ceff;
 
-		delTh = sqrt(-2.0f*ceff*log(curand_uniform(&random_state[idx])));
+		delTh = sqrt(max((-2.0f*ceff*log(curand_uniform(&random_state[idx]))),0.0f));
 
 		sinedTh = sin(delTh);
 		cosdTh = cos(delTh);
 
-		delTh = curand_uniform(&random_state[idx])*2*pi;
+		delTh = curand_uniform(&random_state[idx])*2.0*pi;
 
 		sinePhr = sin(delTh);
 		cosPhr = cos(delTh);
@@ -3056,32 +3253,40 @@ int XPlist::collide(Environment* plasma_in,int isteps)
 
 		velocities.z = sinedTh*vppov+cosdTh*pitch_angle_old;
 
-		dVpara_same += velocities.x*((cosdTh-1)*vppov-sinedTh*cosPhr*pitch_angle_old);
+		dVpara_same += velocities.x*((cosdTh-1.0)*vppov-sinedTh*cosPhr*pitch_angle_old);
 
 		dVpara_normal += velocities.x*sinedTh*sinePhr;
 
 		velocities.z = max(-1.0f,min(1.0f,velocities.z));
 
+		dVpara_toroidal -= velocities.x*(pitch_angle_old-velocities.z);
+
 	}
+	else
+	{
+		nbflag = 2;
+	}
+
 
 	vpll = vpara[0][idx]+dVpara_toroidal;
 	vpp1 = vperp[0][idx] + dVpara_same;
-	vpp2 = vperp[0][idx] + dVpara_normal;
+	vpp2 = dVpara_normal;
 
 	velocity_temp = sqrt(vpll*vpll+vpp1*vpp1+vpp2*vpp2);
-	velocity_temp = max(1.0f,velocity_temp);
+	velocity_temp = max(0.5*thermal_velocity,velocity_temp);
 
 	vpara[0][idx] = max(-0.999999f*velocity_temp,min(0.999999f*velocity_temp,vpll));
 
 	pitch_angle[0][idx] = vpara[0][idx]/velocity_temp;
 
-	vperp[0][idx] = sqrt(1.0f-pow(pitch_angle[0][idx],2))*velocity_temp;
+	vperp[0][idx] = sqrt(max(1.0f-pow(pitch_angle[0][idx],2),0.0f))*velocity_temp;
 
-	momentum[idx] = ZMP*mass[idx]*vpara[0][idx]*px[0][idx]*(plasma_in -> Bfieldphi(px[0][idx],py[0][idx]));
+	momentum[idx] = ZMP*mass[idx]*vpara[0][idx]*px[0][idx]*(plasma_in -> Bfieldphi(px[0][idx],py[0][idx])*ZT2G);
 
-	if(velocities.x <= thermal_velocity)
+	if((nbflag==2))
 	{
 		momentum[idx] = 0.0f;
+		energy[idx] = 0.0f;
 		pexit[idx] = XPlistexit_thermalized;
 		return 2;
 	}
@@ -3137,14 +3342,14 @@ void XPlist::anomalous_diffusion(Environment* plasma_in)
 	realkind difb;
 	realkind2 gradD;
 	realkind dDbdXi;
-	realkind kenergy = vpara[0][idx]*vpara[0][idx]+vperp[0][idx]*vperp[0][idx];
+	realkind kenergy = (vpara[0][idx]*vpara[0][idx]+vperp[0][idx]*vperp[0][idx])*V2TOEV;
 
 	realkind gxi;
 	realkind veld;
 
 	realkind energy_factor = 1.0f;
 
-	realkind deltat;
+	realkind deltatl;
 	realkind dxi_length;
 	realkind tstep_length;
 
@@ -3153,12 +3358,10 @@ void XPlist::anomalous_diffusion(Environment* plasma_in)
 	realkind deltaPhi;
 
 	realkind temp_velocity;
-	realkind tempB = pow(plasma_in->Bfieldr(px[0][idx],py[0][idx]),2)+
-			  pow(plasma_in->Bfieldz(px[0][idx],py[0][idx]),2)+
-			  pow(plasma_in->Bfieldphi(px[0][idx],py[0][idx]),2);;
+	realkind tempB;
 	realkind newpotential;
 
-	realkind mub = vperp[0][idx]*vperp[0][idx]/tempB;
+	//realkind mub = vperp[0][idx]*vperp[0][idx]/sqrt(tempB);
 
 	int ictmax = 1;
 	int ict = 0;
@@ -3193,6 +3396,7 @@ void XPlist::anomalous_diffusion(Environment* plasma_in)
 	while(ict < ictmax)
 	{
 		ict++;
+
 		if(ict > ictmax)
 			break;
 
@@ -3242,33 +3446,33 @@ void XPlist::anomalous_diffusion(Environment* plasma_in)
 		{
 			if(ict == 1)
 			{
-				dxi_length = sqrt(2*fpdt_goosed[idx]*difb);
+				dxi_length = sqrt(max(2*fpdt_goosed[idx]*difb,0.0));
 				tstep_length = (plasma_in -> dxi_spacing2(transp_zone))/gxi;
 				ictmax = pow(4*dxi_length/tstep_length+1,2);
 
 				ictmax = max(ictmax,(int)rint(4*fpdt_goosed[idx]*abs(velb+veld)/tstep_length+1));
-
-				deltat = fpdt_goosed[idx]/ictmax;
+				ictmax = min(ictmax,50);
+				deltatl = fpdt_goosed[idx]/ictmax;
 
 			}
 
-			dxi_length = sqrt(2.0f*deltat*difb);
+			dxi_length = sqrt(max(2.0f*deltatl*difb,0.0));
 		}
 		else
 		{
 			dxi_length = 0;
 			if(ict == 1)
 			{
-				deltat = fpdt_goosed[idx];
+				deltatl = fpdt_goosed[idx];
 				ictmax = 1;
 			}
 		}
 
 		if(dxi_length > 0)
 		{
-			deltaR = curand_log_normal(&random_state[idx],0,dxi_length);
-			deltaZ = curand_log_normal(&random_state[idx],0,dxi_length);
-			deltaPhi = curand_log_normal(&random_state[idx],0,dxi_length);
+			deltaR = (randGauss(&random_state[idx],0,dxi_length));
+			deltaZ = (randGauss(&random_state[idx],0,dxi_length));
+			deltaPhi = (randGauss(&random_state[idx],0,dxi_length));
 		}
 		else
 		{
@@ -3277,8 +3481,8 @@ void XPlist::anomalous_diffusion(Environment* plasma_in)
 			deltaPhi = 0;
 		}
 
-		deltaR += deltat*(gradD.x+velbrz.x);
-		deltaZ += deltat*(gradD.y+velbrz.y);
+		deltaR += deltatl*(gradD.x+velbrz.x);
+		deltaZ += deltatl*(gradD.y+velbrz.y);
 
 		deltaR += sqrt(pow(px[0][idx],2)+deltaPhi*deltaPhi)-px[0][idx];
 
@@ -3292,30 +3496,28 @@ void XPlist::anomalous_diffusion(Environment* plasma_in)
 
 	}
 
-	tempB = pow(plasma_in->Bfieldr(px[0][idx],py[0][idx]),2)+
-				  pow(plasma_in->Bfieldz(px[0][idx],py[0][idx]),2)+
-				  pow(plasma_in->Bfieldphi(px[0][idx],py[0][idx]),2);
+	tempB = eval_Bmod(plasma_in->Psispline,plasma_in->gspline);
 
-	tempB = sqrt(tempB);
-
-	newpotential = (plasma_in -> Phispline.BCspline_eval<XPgridderiv_f>(px[0][idx],py[0][idx]))*charge[idx];
+	newpotential = (plasma_in -> Phispline.BCspline_eval<XPgridderiv_f>(px[0][idx],py[0][idx]))*ZEL*charge[idx];
 
 	temp_velocity = max(1.0f,kenergy-(newpotential-potential[0][idx]));
 
 	temp_velocity = sqrt(temp_velocity/V2TOEV);
 
-	vperp[0][idx] = sqrt(tempB*mub);
+	vperp[0][idx] = sqrt(2.0f*tempB*mu[idx]/(ZMP*mass[idx]));
 
-	vperp[0][idx] = min(temp_velocity,vperp[0][idx]);
+	vperp[0][idx] = min(0.999f*temp_velocity,vperp[0][idx]);
 
 	if(vpara[0][idx] < 0)
 	{
-		vpara[0][idx] = -sqrt(temp_velocity*temp_velocity-pow(vperp[0][idx],2));
+		vpara[0][idx] = -sqrt(max((temp_velocity*temp_velocity-pow(vperp[0][idx],2)),0.0f));
 	}
 	else
 	{
-		vpara[0][idx] = sqrt(temp_velocity*temp_velocity-pow(vperp[0][idx],2));
+		vpara[0][idx] = sqrt(max((temp_velocity*temp_velocity-pow(vperp[0][idx],2)),0.0f));
 	}
+
+	pitch_angle[0][idx] = vpara[0][idx]/temp_velocity;
 
 }
 
@@ -3506,7 +3708,7 @@ void XPlist_setup_kernel(Environment* plasma_in,XPlist* particles_global,
 			particles.nx[0][idx] = max(2,min(nr-3,particles.nx[0][idx]));
 			particles.ny[0][idx] = max(2,min(nz-3,particles.ny[0][idx]));
 
-			particles.cellindex[0][idx] = zmap(particles.nx[0][idx],particles.ny[0][idx]);
+			particles.calc_binid(plasma_in,0,idx);
 
 			particles.update_gc(plasma_in);
 
@@ -3514,6 +3716,7 @@ void XPlist_setup_kernel(Environment* plasma_in,XPlist* particles_global,
 			particles.old_idx[idx] = gidx;
 
 			particles.time_done[idx] = 0;
+			particles.steps_midplanecx[idx] = 0;
 
 
 			particles.orbflag[idx] = 1;
@@ -3556,7 +3759,7 @@ void XPlist_setup_kernel(Environment* plasma_in,XPlist* particles_global,
 
 	__syncthreads();
 
-	nptcls_block = reduce<256>(nptcls);
+	nptcls_block = reduce<BLOCK_SIZE>(nptcls);
 
 	__syncthreads();
 
@@ -3824,8 +4027,9 @@ void XPlist::print_members(int idx,int gidx,int idBeam)
 }
 
 
+#ifdef DO_BEAMCX
 __global__
-void XPlist_check_CX(XPlist* particles_global,cudaMatrixui splittinglist, int istep)
+void XPlist_check_CX(XPlist particles_global,cudaMatrixui splittinglist, int istep)
 {
 	/*
 	 * This kernel checks to see which particles need to check for charge exchange events
@@ -3848,22 +4052,22 @@ void XPlist_check_CX(XPlist* particles_global,cudaMatrixui splittinglist, int is
 
 	int iinc;
 
-	if(gidx < particles_global->nptcls_max)
+	if(gidx < particles_global.nptcls_max)
 		splittinglist(gidx,idBeam) = 0;
 
-if(block_start < particles_global->nptcls[idBeam])
+if(block_start < particles_global.nptcls[idBeam])
 {
-	particles.shift_local(particles_global);
+	particles.shift_local(&particles_global);
 
 	__syncthreads();
 	sdata[idx] = 1;
 
 	if(idx < particles.nptcls_max)
 	{
-		if((particles.steps_midplanecx[idx] > particles.istep_next_cx[idx])&&(particles.orbflag[idx] == 1))
+		if((particles.steps_midplanecx[idx] >= particles.istep_next_cx[idx])&&(particles.orbflag[idx] == 1))
 		{
 			iinc = (int)rint(particles.cxskip[idx]);
-			if((particles.cxskip[idx] - ((realkind)iinc))>particles.get_random()) iinc++;
+			if((particles.cxskip[idx] - iinc)>particles.get_random()) iinc++;
 
 			particles.istep_next_cx[idx] += iinc;
 
@@ -3883,6 +4087,7 @@ if(block_start < particles_global->nptcls[idBeam])
 	if(idx < particles.nptcls_max)
 	{
 		splittinglist(gidx,idBeam) = sdata[idx];
+		//splittinglist(gidx,idBeam) = 0;
 
 
 	}
@@ -3921,11 +4126,17 @@ void beamcx_kernel(Environment* plasma_in,XPlist particles_global,cudaMatrixr nu
 	int neutrals_remaining;
 	int imul;
 	int ireto;
+	int idocx = 0;
 	unsigned int orbflag = 0;
 
 	int jsplit = 0;
 
 	realkind weight_sum = 0.0;
+
+	if(gidx < particles_global.nptcls[idBeam])
+	{
+		idocx = splittinglist(gidx,idBeam);
+	}
 
 	__shared__ XPlist particles;
 
@@ -3941,7 +4152,7 @@ if(block_start < particles_global.nptcls[idBeam])
 
 	__syncthreads();
 
-	if(idx<particles.nptcls_max)
+	if((idx<particles.nptcls_max)&&(idocx==1))
 	{
 		if(particles.orbflag[idx] == 1)
 		{
@@ -4084,7 +4295,7 @@ if(block_start < particles_global.nptcls[idBeam])
 		{
 			splittinglist(gidx,idBeam) = 1;
 
-			printf("parent %i spawned %i neutrals \n",gidx,jsplit);
+			//printf("parent %i spawned %i neutrals \n",gidx,jsplit);
 			if(particles.orbflag[idx] == 0)
 				{
 					splittinglist(gidx,idBeam) = 0;
@@ -4098,6 +4309,12 @@ if(block_start < particles_global.nptcls[idBeam])
 }
 
 }
+
+
+
+#endif
+
+#ifndef DONT_DO_NUTRAV
 
 __global__
 void setup_nutrav(Environment* plasma_in,XPlist cx_particles, XPlist neutrals_global,cudaMatrixr nutrav_weight_in,
@@ -4441,6 +4658,8 @@ void recapture_neutrals(Environment* plasma_in,XPlist neutrals_global,
 
 	unsigned int old_id;
 
+	int nx,ny;
+
 	__shared__ XPlist neutrals;
 
 	neutrals.shift_local(&neutrals_global);
@@ -4458,14 +4677,14 @@ void recapture_neutrals(Environment* plasma_in,XPlist neutrals_global,
 		neutrals.update_gc(plasma_in);
 		neutrals.gphase();
 		neutrals.update_flr(plasma_in);
-		neutrals.cellindex[0][idx] = neutrals.eval_NGC(plasma_in,idx,0);
+		neutrals.calc_binid(plasma_in,0,idx);
 
 	}
 
 }
 
 
-
+#endif
 
 
 

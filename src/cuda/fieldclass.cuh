@@ -606,9 +606,9 @@ public:
 
 
 
-	XPTextureGrid Bfieldr; // Coarse Bfield R-Direction
-	XPTextureGrid Bfieldz; // Coarse Bfield Z-Direction
-	XPTextureGrid Bfieldphi; // Coarse Bfield Phi-Direction
+	XPTextureGrid Bfieldr; // Coarse Bfield R-Direction Tesla
+	XPTextureGrid Bfieldz; // Coarse Bfield Z-Direction Tesla
+	XPTextureGrid Bfieldphi; // Coarse Bfield Phi-Direction Tesla
 	XPTextureGrid transp_zone; // NGC
 	XPTextureGrid beam_zone; // NGC2
 	XPTextureGrid Xi_map;
@@ -2127,6 +2127,8 @@ void Environment::setup_parameters(int* intparams,double* dbleparams)
 	cx_cross_sections.max_energy = dbleparams[11];
 
 	xi_max = dbleparams[14];
+
+	cxsplit = dbleparams[15];
 
 	cx_cross_sections.minz = intparams[30];
 	cx_cross_sections.maxz = intparams[31];
@@ -3973,16 +3975,19 @@ void generate_limiter_bitmap(Environment* plasma_in,cudaMatrixf limiter_map_out)
 
 	result = exp(-pow(limiter_distance,2));
 
-	result = (exp(-pow(10.0*(spline_params.x-0.5),2))+exp(-pow(10.0*(spline_params.y-0.5),2)))/2.0f;
+	result = (exp(-pow(15.0*(spline_params.x-0.5),2))+exp(-pow(15.0*(spline_params.y-0.5),2)))/2.0f;
 
-
+	if(result >= 0.25)
+		result = 1.0;
+	else
+		result = 0;
 
 	if(Xi >= plasma_in -> xi_max)
 	{
 		result = 0;
 	}
 
-	printf("For pixel(%i,%i): result = %f\n",gidx,gidy,result);
+	//printf("For pixel(%i,%i): result = %f\n",gidx,gidy,result);
 
 
 

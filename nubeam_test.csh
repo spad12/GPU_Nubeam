@@ -6,4 +6,4 @@ set nubeam_path = ../nubeam_sandbox/nubeam/nubeam
 cd $nubeam_path
 cd ..
 cd nubeam_comp_exec
-(csh ./d3d_test.csh -nptcls 50000)
+(csh ./d3d_test.csh -nptcls 30000)

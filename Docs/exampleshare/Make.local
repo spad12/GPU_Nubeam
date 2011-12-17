@@ -31,8 +31,8 @@ CLIBS=-L$(GCC_PATH) -lstdc++
 PERL=/usr/bin/perl
 XFLIB=-L$(F90HOME) -lifcore -lifport
 CUDA_LIBRARY_PATH	:= /usr/local/cuda/lib64
-CUDA_INCLUDE_PATH	:= /usr/local/cuda/include,/home/josh/CUDA/Nubeam/nubeam_gpu/include
-CUDAFORTRAN_LIBS := -L$(CUDA_LIBRARY_PATH) -I$(CUDA_INCLUDE_PATH) -lcudart -L/home/josh/CUDA/Nubeam/nubeam_gpu/include -lglut
+CUDA_INCLUDE_PATH	:= /usr/local/cuda/include,/home/josh/CUDA/Nubeam/nubeam_gpu/include 
+CUDAFORTRAN_LIBS := -L$(CUDA_LIBRARY_PATH) -I$(CUDA_INCLUDE_PATH) -lcudart -L/home/josh/CUDA/Nubeam/nubeam_gpu/include -lglut -L/home/josh/CUDA/Nubeam/nubeam_gpu/include/cutil -lcutil_x86_64
 #NVCCFLAGS	:= -m64 -O3 -gencode arch=compute_20,code=sm_20 --maxrregcount=40 -I$(CUDA_INCLUDE_PATH)
-NVCCFLAGS	:= -m64 -gencode=arch=compute_20,code=sm_20 --maxrregcount=40 -ccbin /opt/intel/Compiler/11.1/073/bin/intel64/icc -I$(CUDA_INCLUDE_PATH)
+NVCCFLAGS	:= -m64 -O3  -gencode=arch=compute_20,code=sm_20  -ccbin /opt/intel/Compiler/11.1/073/bin/intel64/icc -I$(CUDA_INCLUDE_PATH)
 NVCC		:= /usr/local/cuda/bin/nvcc

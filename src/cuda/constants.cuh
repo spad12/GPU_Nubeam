@@ -21,18 +21,22 @@
 #include "cuda_texture_types.h"
 #include "texture_fetch_functions.h"
 #include "builtin_types.h"
-#include "cutil.h"
+#include "cutil/cutil.h"
 #include "device_functions.h"
 #include "cuda_gl_interop.h"
 
 #define BLOCK_SIZE 256
 #define BLOCK_SIZE2 512
+#define ORBIT_BLOCK_SIZE 128
 #define Max_Splits 32 // Maximum number of neutral splits
 #define Max_Track_segments 64// Maximum number of track segments
 #define Max_energy_sectors 512
-#define MAX_STEPS 2000
+#define NPTCLS_PER_COLLIDE_THREAD 1
+#define MAX_STEPS 5000
 
 #define debug
+
+//#define USE_STUPID_SORT
 
 #define Cell_granularity 2
 
@@ -45,8 +49,12 @@
 // Set this if you want to the orbits to be animated.
 
 #define Animate_orbits
-#define SPHERE_SPACING 4
+#define SPHERE_SPACING 50
 
+
+#define DO_BEAMCX
+
+#define DONT_DO_NUTRAV
 
 #  define CUDA_SAFE_KERNEL(call) {                                         \
 	call;																					\
@@ -87,13 +95,14 @@ __constant__ realkind thmin = 0.0f;
 __constant__ realkind ZMP = 1.6726E-24;
 __constant__ realkind ZC = 2.9979E10; // Speed of light
 __constant__ realkind ZEL = 4.8032E-10;
+__constant__ realkind ZT2G = 1.0;
 
 __constant__ realkind I0 = 2.0e6; // Amp
 __constant__ realkind mu0 =  1.2566370614359e-6; // N/Amp^2
 
 __constant__ realkind epsilon = 1.0e-34;
 
-__constant__ realkind orbit_error_con = 1.0e-2;
+__constant__ realkind orbit_error_con = 1.0e-4;
 __constant__ realkind znrc_errcon = 1.04976e-3;
 __constant__ realkind znrc_pshrnk = -0.333333333333;
 __constant__ realkind znrc_pgrow = -0.25;
@@ -203,7 +212,7 @@ __global__ void basicreduce(T *g_idata, T *g_odata, unsigned int n)
 	if (tid == 0) g_odata[blockIdx.x] = sdata[0];
 }
 
-template<unsigned int blockSize,typename T>
+template<int blockSize,typename T>
 __device__
 T reduce(T* sdata)
 {

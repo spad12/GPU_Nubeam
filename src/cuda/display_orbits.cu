@@ -78,7 +78,7 @@ void populate_spheres_kernel(cudaMatrixSphere spheres,
 	float nz = 128;
 	float dx = DIM;
 	float dy = DIM;
-	int nptcls_step = nptcls(istep);
+	int nptcls_step = nptcls(0);
 
 
 	if(sidx<nptcls_step)
@@ -87,6 +87,12 @@ void populate_spheres_kernel(cudaMatrixSphere spheres,
 		spheres(gidx).y = (dy*((yposition(gidx,0,istep)-origin.y)/gridspacing.y))/nz;
 		spheres(gidx).z = -400.0;
 		spheres(gidx).radius = 5.0;
+
+		if((xposition(gidx,0,istep) <= 0.0))
+		{
+			spheres(gidx).z = -INF;
+			spheres(gidx).radius = 10.0;
+		}
 
 		//printf("sphere %i at %f,%f\n",gidx,spheres(gidx).x,spheres(gidx).y);
 
@@ -113,11 +119,11 @@ void generate_frame_kernel( uchar4 *ptr, cudaMatrixSphere spheres,
 
     float r=0, g=0, b=0;
     float maxz = -INF;
-    int nptcls_step = nptcls(istep);
+    int nptcls_step = nptcls(0);
     nspheres = min(nspheres,nptcls_step);
 
     r = 0.0*limiter_bitmap(x,y);
-    g = 0.5*limiter_bitmap(x,y);
+    g = 0.9*limiter_bitmap(x,y);
 
     // now calculate the value at that position
 
